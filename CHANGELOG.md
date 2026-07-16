@@ -5,6 +5,20 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-07-16
+
+### Fixed
+
+- **`package.json` is now exported.** `exports` restricted the subpath map to `.`, so any consumer or
+  tool reading `@dszp/netsapiens-lib/package.json` — bundlers, version checks, some test runners — hit
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`. Added the conventional `"./package.json": "./package.json"`.
+
+### Notes
+
+- First release published by CI via **OIDC trusted publishing**, so this is the first version to carry
+  a **provenance attestation**. (`0.1.0` was published by hand out of necessity: npm can only attach a
+  trusted publisher to a package that already exists.)
+
 ## [0.1.0] — 2026-07-15
 
 Initial public release.
