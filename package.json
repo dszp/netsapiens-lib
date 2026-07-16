@@ -14,7 +14,8 @@
   },
   "bugs": { "url": "https://github.com/dszp/netsapiens-lib/issues" },
   "homepage": "https://github.com/dszp/netsapiens-lib#readme",
-  "publishConfig": { "access": "public", "provenance": true },
+  "//publishConfig": "No `provenance: true` here on purpose: it would force provenance on EVERY publish, including the manual first one that a brand-new package requires (npm can only configure trusted publishing on a package that already exists). Provenance comes from the workflow's explicit `npm publish --provenance` in CI.",
+  "publishConfig": { "access": "public" },
   "engines": { "node": ">=20" },
   "keywords": [
     "netsapiens",
