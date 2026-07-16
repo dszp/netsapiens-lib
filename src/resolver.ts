@@ -46,7 +46,7 @@ const trim = (v: string, max = GREET_MAX): string => (v.length > max ? `${v.slic
  *   wp → SNAPmobile Web (browser phone) · t → Microsoft Teams · m → SNAPmobile (mobile) ·
  *   r → mobile/desktop app · b / other lower letters → usually a desk phone.
  * Exact device info (model, MAC, transport) IS available via the device API but isn't pulled yet —
- * see CLAUDE.md → API notes; this suffix guess is the cheap approximation.
+ * see ARCHITECTURE.md → NetSapiens routing model; this suffix guess is the cheap approximation.
  */
 function deviceKindBySuffix(suffix: string): { icon: string; kind: string } {
   switch (suffix.toLowerCase()) {

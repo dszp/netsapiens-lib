@@ -105,7 +105,7 @@ export interface Snapshot {
    * Per-AA dialplan dialrules, keyed by AA extension — the AUTHORITATIVE menu + default routing that
    * the /autoattendants detail omits (no-key/star/option). From GET /domains/{d}/dialplans/{domain}_{ext}/dialrules.
    * The resolver reads `Prompt_<startingPrompt-id>.<suffix>` rules: .Default (no-key/timeout), .* (unassigned),
-   * .<digit> (press N), .Case_[...] (dial-by-ext). See CLAUDE.md → NetSapiens API notes.
+   * .<digit> (press N), .Case_[...] (dial-by-ext). See ARCHITECTURE.md → NetSapiens routing model.
    */
   attendantDialrulesByExt?: Record<string, Rec[]>;
   [k: string]: any;

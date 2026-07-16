@@ -1,6 +1,6 @@
 /**
  * Portable NetSapiens API read client — the seed of the eventual "NS API for Worker/Node"
- * library (see CLAUDE.md → North star). Ported from NetSapiens-Onboarding-Backup (`src/api/client.ts`
+ * library. Ported from NetSapiens-Onboarding-Backup (`src/api/client.ts`
  * NsClient + `src/backup/snapshot.ts` backupDomain), trimmed to the READ-ONLY routing subset the
  * resolver needs, and kept Node-free (fetch/URL only) so it runs in a Cloudflare Worker unchanged.
  *
@@ -197,7 +197,7 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
   // One list row per (user, prompt); an AA may have several (multi-timeframe). Collect ALL detail
   // records per user (array) so the resolver can flag multi-prompt deviations, not just last-wins.
   // Also fetch each AA's OWN dialplan dialrules ({domain}_{ext}) — the authoritative menu/default
-  // routing the /autoattendants detail omits (no-key/star/option). See CLAUDE.md → API notes.
+  // routing the /autoattendants detail omits (no-key/star/option). See ARCHITECTURE.md → NetSapiens routing model.
   let attendantDetailsByUser: Record<string, Rec[]> | undefined;
   let attendantDialrulesByExt: Record<string, Rec[]> | undefined;
   if (opts.includeAttendantMenus ?? true) {

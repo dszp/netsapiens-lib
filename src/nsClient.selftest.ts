@@ -20,7 +20,7 @@ if (!snapPath) {
 const raw = JSON.parse(readFileSync(snapPath, 'utf8')) as Snapshot;
 const domain = String(raw.meta?.domain ?? raw.domain?.domain ?? '');
 
-// Optional AA menu sidecars keyed by ext (same convention as cli.ts).
+// Optional AA menu sidecars keyed by ext.
 const attendantsDir = process.argv[3] ?? join(resolve(snapPath, '..'), 'attendants');
 const aaByExt: Record<string, unknown> = {};
 try {

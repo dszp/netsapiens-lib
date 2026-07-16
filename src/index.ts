@@ -1,8 +1,8 @@
 /**
  * Public API of the portable call-flow library — the surface any host imports (Cloudflare
  * Worker, ns-onboard CLI / review page / build-preview, the portal viewer). Everything
- * re-exported here is Node-free and runtime-portable. The Node-only CLI (`cli.ts`) is NOT
- * part of this surface.
+ * re-exported here is Node-free and runtime-portable; any Node-only host code (e.g. a CLI) lives
+ * outside this surface.
  *
  * Typical use in another project:
  *   import { resolveFlow, toMermaid, renderGalleryHtml, verify } from '@dszp/netsapiens-lib';
