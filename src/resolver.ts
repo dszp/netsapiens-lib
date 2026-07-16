@@ -876,7 +876,7 @@ function ensureAttendant(ext: string, idx: Index, b: Builder): string {
   const greet = s(detail?.audio?.['file-script-text']);
   // SV builds AAs on the always-available `*` timeframe; a specific timeframe is unusual. Show it
   // plainly on the node (clear display) rather than as a loud warning — the loud validation belongs
-  // in the ns-onboard/backup path, not the viewer.
+  // in the backup path, not the viewer.
   const aaTf = s(detail?.['time-frame']);
   const tfTag = aaTf && aaTf !== '*' ? ` · timeframe ${aaTf}` : '';
   b.node(id, 'attendant', `🔀 Auto Attendant ${ext}${nm ? ` · ${nm}` : ''}`, (greet ? `“${trim(greet)}”` : 'plays menu') + tfTag, undefined, greet.length > GREET_MAX ? greet : undefined);

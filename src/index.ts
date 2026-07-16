@@ -1,6 +1,6 @@
 /**
  * Public API of the portable call-flow library — the surface any host imports (Cloudflare
- * Worker, ns-onboard CLI / review page / build-preview, the portal viewer). Everything
+ * Worker, an onboarding CLI / review page / build-preview, the portal viewer). Everything
  * re-exported here is Node-free and runtime-portable; any Node-only host code (e.g. a CLI) lives
  * outside this surface.
  *
@@ -36,7 +36,7 @@ export {
   type CardOptions,
 } from './html.js';
 export { resolveSvgSize, rasterizerScript } from './raster.js';
-export { NsClient, NsApiError, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
+export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
 export {
   verify,
   validateJwtFormat,

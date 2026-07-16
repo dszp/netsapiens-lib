@@ -13,8 +13,10 @@
  * with a TTL capped by the token's own `exp`. A bad or expired token never reaches the server.
  *
  * Uses only Web-standard globals (atob, TextDecoder, crypto.subtle, fetch) — no Node Buffer — so
- * the same file runs in a Worker and in the ns-onboard CLI.
+ * the same file runs in a Worker and in an onboarding CLI.
  */
+
+import { assertBareServer } from './nsClient.js';
 
 export interface JwtContext {
   /** The token's domain (from claims). Scopes downstream NS reads. When masking, this is the
@@ -208,12 +210,18 @@ export function extractContext(payload: Record<string, unknown>): JwtContext {
 export interface FormatResult {
   validFormat: boolean;
   unexpired: boolean;
+  /** `nbf` is set and still in the future (beyond the skew leeway) ⇒ the token is not yet valid. */
+  notYetValid?: boolean;
   expiresAt?: string;
   expiresInSeconds?: number;
   reason?: string;
   payload?: Record<string, unknown>;
   context: JwtContext;
 }
+
+/** Clock-skew leeway for `nbf`, in seconds. Matches the Cloudflare-Access verifier (access.ts) so
+ *  the two JWT paths treat "not yet valid" identically and a small clock drift can't lock anyone out. */
+const NBF_LEEWAY_SECONDS = 60;
 
 /**
  * Local format + expiry check. No network, no signature verification.
@@ -241,6 +249,26 @@ export function validateJwtFormat(token: string, nowMs: number = Date.now()): Fo
   if (expSeconds === undefined) {
     return { validFormat: true, unexpired: false, reason: 'Missing or invalid exp claim', payload, context };
   }
+
+  // nbf: a token dated in the future is not yet valid. Without this it passes every local check and
+  // still triggers an upstream /jwt roundtrip a local gate should have refused; and format-mode
+  // callers (verify(..., {mode:'format', signingSecret})) would return ok:true for a not-yet-valid
+  // token. Defense-in-depth for the live path (the server is the real authority), authoritative for
+  // format mode. Leeway matches access.ts.
+  const nbfSeconds = toEpochSeconds(payload.nbf);
+  if (nbfSeconds !== undefined && nbfSeconds > nowSeconds + NBF_LEEWAY_SECONDS) {
+    return {
+      validFormat: true,
+      unexpired: expSeconds - nowSeconds > 0,
+      notYetValid: true,
+      expiresAt: new Date(expSeconds * 1000).toISOString(),
+      expiresInSeconds: expSeconds - nowSeconds,
+      reason: 'Token not yet valid (nbf is in the future)',
+      payload,
+      context,
+    };
+  }
+
   const expiresInSeconds = expSeconds - nowSeconds;
   return {
     validFormat: true,
@@ -264,9 +292,19 @@ export interface VerdictCache {
   set(key: string, verdict: JwtVerdict, ttlSeconds: number): Promise<void>;
 }
 
-/** Simple in-isolate cache for dev / a single Worker isolate (not shared across isolates). */
+/**
+ * Simple in-isolate cache for dev / a single Worker isolate (not shared across isolates).
+ *
+ * BOUNDED ON PURPOSE. Expiry alone is not a bound: entries expire lazily, on a `get()` for that
+ * exact key, so an attacker who uses each token once never triggers a sweep and every verdict is
+ * retained until the isolate dies. Since a *negative* verdict is cached for a token anyone can mint
+ * (correct `aud`/`iss`/`exp` need no signing key), an unbounded map is a remote OOM. Hence: sweep on
+ * insert, and hard-cap with FIFO eviction. `maxEntries` is generous — a real portal's working set is
+ * its live sessions, far below the cap, so eviction only ever bites the pathological case.
+ */
 export class MemoryVerdictCache implements VerdictCache {
   private store = new Map<string, { verdict: JwtVerdict; expiresAtMs: number }>();
+  constructor(private readonly maxEntries = 1000) {}
   async get(key: string): Promise<JwtVerdict | undefined> {
     const hit = this.store.get(key);
     if (!hit) return undefined;
@@ -277,13 +315,30 @@ export class MemoryVerdictCache implements VerdictCache {
     return hit.verdict;
   }
   async set(key: string, verdict: JwtVerdict, ttlSeconds: number): Promise<void> {
-    this.store.set(key, { verdict, expiresAtMs: Date.now() + ttlSeconds * 1000 });
+    const now = Date.now();
+    for (const [k, v] of this.store) if (v.expiresAtMs <= now) this.store.delete(k);
+    this.store.delete(key); // re-insert so Map iteration order == insertion order == eviction order
+    this.store.set(key, { verdict, expiresAtMs: now + ttlSeconds * 1000 });
+    while (this.store.size > this.maxEntries) {
+      const oldest = this.store.keys().next();
+      if (oldest.done) break;
+      this.store.delete(oldest.value);
+    }
+  }
+  /** Live entry count. Exposed for tests/observability; not part of the VerdictCache contract. */
+  get size(): number {
+    return this.store.size;
   }
 }
 
 /** SHA-256 hex of the token — cache key that never stores the raw token. */
-export async function tokenKey(token: string): Promise<string> {
-  const data = new TextEncoder().encode(normalizeToken(token));
+export async function tokenKey(token: string, server?: string): Promise<string> {
+  // Scope the key by `server` when given: a consumer that fronts two NS cores with ONE cache (a
+  // reseller tool, or prod+staging sharing a KV namespace) would otherwise serve a token validated
+  // against server A as ok:true for a request bound to server B — B never contacted. verify() passes
+  // its server; the NUL separator can't appear in a hostname, so the two fields can't collide.
+  const material = server ? `${server}\u0000${normalizeToken(token)}` : normalizeToken(token);
+  const data = new TextEncoder().encode(material);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -347,8 +402,8 @@ export async function verify(token: string, opts: VerifyOptions): Promise<JwtVer
     checkedAt,
   };
 
-  // Local gate: bad format or expired ⇒ reject without a roundtrip.
-  if (!fmt.validFormat || !fmt.unexpired) return base;
+  // Local gate: bad format, expired, or not-yet-valid (nbf) ⇒ reject without a roundtrip.
+  if (!fmt.validFormat || !fmt.unexpired || fmt.notYetValid) return base;
 
   // Claim assertions (always, no key needed): aud must be "ns"; iss must match unless opted out.
   const claims = assertClaims(fmt.payload ?? {}, { aud: opts.expectedAud, iss: opts.expectedIss, validateIss: opts.validateIss });
@@ -374,8 +429,19 @@ export async function verify(token: string, opts: VerifyOptions): Promise<JwtVer
       : { ...withSig, live: 'skipped', ok: false, reason: 'Signature not verified (format mode without signingSecret)' };
   }
 
+  // Validate the server host BEFORE it reaches the URL: a caller that derives `server` from request
+  // input would otherwise let `host@evil` / `host#…` redirect the Bearer token off-origin. Fail
+  // closed (uncached error) rather than throw, so a misconfigured server can't crash the caller.
+  let safeServer: string;
+  try {
+    safeServer = assertBareServer(opts.server);
+  } catch (err) {
+    return { ...withSig, live: 'error', ok: false, reason: (err as Error).message };
+  }
+
   // Live mode — consult cache first (unless force-fresh: writes/sensitive reads always re-check).
-  const key = await tokenKey(token);
+  // Key is scoped by server: one cache fronting two NS cores must not cross-serve verdicts.
+  const key = await tokenKey(token, safeServer);
   if (opts.cache && !opts.forceFresh) {
     const cached = await opts.cache.get(key);
     if (cached) return { ...cached, fromCache: true, checkedAt };
@@ -389,7 +455,7 @@ export async function verify(token: string, opts: VerifyOptions): Promise<JwtVer
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 4000);
   let verdict: JwtVerdict;
   try {
-    const res = await doFetch(`https://${opts.server}/ns-api/v2/jwt`, {
+    const res = await doFetch(`https://${safeServer}/ns-api/v2/jwt`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${normalizeToken(token)}` },
       redirect: 'manual',

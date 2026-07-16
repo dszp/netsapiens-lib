@@ -4,7 +4,7 @@
  * consumes it. This is the "real IP" contract from the handoff: a normalized graph JSON.
  *
  * Runtime-portable by design: no Node-only imports here or in resolver.ts, so the same
- * code can run in the ns-onboard CLI and in a Cloudflare Worker.
+ * code can run in an onboarding CLI and in a Cloudflare Worker.
  */
 
 export type NodeKind =
@@ -95,7 +95,7 @@ export interface Snapshot {
    *
    * Two shapes are accepted:
    *  - `attendantDetails[ext]`        — a single detail (current live fetch; SV builds AAs on `*`).
-   *  - `attendantDetailsByUser[ext]`  — an ARRAY of details (ns-onboard enriched backup: an AA may
+   *  - `attendantDetailsByUser[ext]`  — an ARRAY of details (an enriched backup: an AA may
    *    have multiple prompts/timeframes). The resolver picks the `*`/Default one as primary and
    *    flags the rest as a deviation (see the AA backup enrichment spec, Addendum 2026-07-11).
    */

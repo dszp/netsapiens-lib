@@ -4,7 +4,7 @@ Portable, **Node-free** NetSapiens toolkit. The same code runs unchanged in a Cl
 Node, or in the browser — it uses only Web APIs (`fetch`, `atob`, `TextDecoder`, `crypto.subtle`),
 never `node:*`.
 
-Three capabilities, one dependency-free package:
+Five capabilities, one dependency-free package:
 
 - **Read-only NS API v2 client** — `NsClient` (bearer auth, injectable `fetch`) +
   `fetchDomainSnapshot(client, domain)` which assembles a routing-relevant domain snapshot.
@@ -14,6 +14,12 @@ Three capabilities, one dependency-free package:
 - **Call-flow resolver + renderers** — `resolveFlow(snapshot, ref)` walks a NetSapiens domain snapshot
   into a normalized `FlowGraph`; `toMermaid()` renders it to a Mermaid flowchart; `renderGalleryHtml()`
   / `renderFlowCards()` return HTML strings the caller can place anywhere.
+- **Identity + policy** — `toPrincipal()` normalizes a validated token into an effective identity
+  (masking-aware: the effective user is the masked one, the `operator` is the reseller behind a
+  `mask_chain`), and `can()` / `isAllowed()` gate features against it with a declarative,
+  **fail-closed** policy. So "who is this, and may they?" isn't re-invented per consumer.
+- **Themes** — `THEMES`, a vendor-neutral registry (node palettes + Mermaid base/look + app chrome)
+  as plain data. Add one here and every host picks it up; nothing is bound to one deployment's brand.
 
 ## Install
 

@@ -53,7 +53,7 @@ const ok = (c: boolean, m: string) => {
   ok(v2.ok && v2.fromCache === true && calls === 1, 'live: second call from cache (no extra roundtrip)');
   // The persisted verdict must NOT carry the full decoded claims blob (PII): nothing downstream reads
   // verdict.payload (toPrincipal uses the typed context fields), so it's trimmed before caching.
-  const stored = await cache.get(await tokenKey(future));
+  const stored = await cache.get(await tokenKey(future, 'api.example.com'));
   ok(!!stored && !('payload' in stored), 'cache: decoded claims payload NOT persisted (PII trim)');
   ok(!('payload' in v2), 'cache: verdict served from cache carries no raw payload');
 

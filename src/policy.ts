@@ -50,6 +50,20 @@ const inList = (value: string, list: string[]): boolean => {
   return list.some((x) => lc(x) === v);
 };
 
+/** Collapse the interchangeable Super User spellings a NetSapiens core may emit ("Super User",
+ *  "superuser", "super-user") to one canonical token. None of these is a valid OTHER scope, so this
+ *  only ever unifies synonyms — a policy written with any one spelling matches a token carrying
+ *  another, closing a fail-closed lockout where e.g. `user_scope: "superuser"` was denied at a rule
+ *  listing `"Super User"`. */
+const canonScope = (s: string): string => {
+  const v = lc(s);
+  return v === 'superuser' || v === 'super-user' || v === 'super user' ? 'super user' : v;
+};
+const scopeInList = (value: string, list: string[]): boolean => {
+  const v = canonScope(value);
+  return list.some((x) => canonScope(x) === v);
+};
+
 /** Does the principal satisfy every condition in this single rule? */
 export function ruleMatches(p: Principal, rule: PolicyRule): boolean {
   // A rule with NO matchable condition (e.g. `{}` or only `description`) is NOT allow-all — that would
@@ -61,7 +75,7 @@ export function ruleMatches(p: Principal, rule: PolicyRule): boolean {
     rule.operators !== undefined ||
     rule.masking !== undefined;
   if (!hasCondition) return false;
-  if (rule.scopes && !inList(p.scope, rule.scopes)) return false;
+  if (rule.scopes && !scopeInList(p.scope, rule.scopes)) return false;
   if (rule.domains && !(rule.domains.includes('*') || inList(p.domain, rule.domains))) return false;
   if (rule.users && !inList(p.id, rule.users)) return false;
   if (rule.operators) {

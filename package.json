@@ -1,6 +1,6 @@
 {
   "name": "@dszp/netsapiens-lib",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Portable, Node-free NetSapiens toolkit: read-only API client, JWT (ns_t) validation, and a snapshot -> FlowGraph -> Mermaid call-flow resolver/renderer. Runs unchanged in a Cloudflare Worker, Node, or the browser.",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,10 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "//require": "ESM-only package. This `require` condition lets Node >=22.12 load it via require(esm); older Node still gets an accurate ERR_REQUIRE_ESM here instead of the confusing ERR_PACKAGE_PATH_NOT_EXPORTED the bare export map produced.",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -44,7 +47,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:watch": "tsc -p tsconfig.json --watch",
-    "prepublishOnly": "tsc -p tsconfig.json",
+    "//prepublishOnly": "Publish-only build with sourcemaps OFF. The `files` globs exclude dist/**/*.map on purpose (they point at src/, which does not ship), but tsc still emits a //# sourceMappingURL pointer into every .js/.d.ts -- so consumers' devtools 404 chasing maps that were never published. Dropping the pointer at publish time is what the exclusion always meant. A normal `pnpm build` keeps maps for link: consumers.",
+    "prepublishOnly": "tsc -p tsconfig.json --sourceMap false --declarationMap false",
     "//test": "The offline suite — green on a fresh clone with no credentials and no fixtures. test:ns is NOT included: it needs a domain snapshot that (correctly) isn't in the repo.",
     "test": "pnpm run test:jwt && pnpm run test:principal && pnpm run test:resolver && pnpm run test:raster",
     "test:jwt": "tsx src/jwt.selftest.ts",

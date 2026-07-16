@@ -113,5 +113,20 @@ jobs:
           node -e "console.log('OIDC request URL present:', Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL))"
           node -e "console.log('NODE_AUTH_TOKEN present:', Boolean(process.env.NODE_AUTH_TOKEN))"
 
+      # A prerelease must NOT become the default install. The tag regex above deliberately accepts
+      # v1.2.3-beta.1, and `npm publish` with no --tag silently publishes under `latest` -- so cutting
+      # a GitHub prerelease would hand every plain `npm install` a beta. Derive the dist-tag from the
+      # version instead: anything with a prerelease identifier goes to `next`, everything else to
+      # `latest` (npm's own default, stated explicitly rather than implied).
       - name: Publish
-        run: npm publish --provenance --access public
+        env:
+          RELEASE_TAG: ${{ steps.vars.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          case "$VERSION" in
+            *-*) DIST_TAG=next ;;
+            *)   DIST_TAG=latest ;;
+          esac
+          echo "Publishing ${VERSION} under dist-tag: ${DIST_TAG}"
+          npm publish --provenance --access public --tag "$DIST_TAG"

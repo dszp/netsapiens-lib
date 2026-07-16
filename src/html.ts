@@ -1,7 +1,7 @@
 /**
  * FlowGraph[] -> a self-contained gallery HTML string. Portable (no Node deps): the caller
  * decides where the string goes — a file (CLI), an HTTP response (Worker), or embedded in
- * ns-onboard's review page / build-preview. Mermaid renders client-side from a CDN.
+ * a host review page / build-preview. Mermaid renders client-side from a CDN.
  */
 
 import type { FlowGraph } from './model.js';
@@ -47,15 +47,35 @@ const FLOW_LABEL_CSS = `.mermaid g.agents div, .mermaid g.agents span, .mermaid 
  *  like AAs balloon). */
 const FLOWCHART_CFG = `htmlLabels:true, curve:'basis', nodeSpacing:45, rankSpacing:55`;
 
+/** Escapes for BOTH text and quoted-attribute contexts — `mermaidScriptTag` interpolates into
+ *  `src="…"`, so omitting the quote entities made `escapeHtml(url)` look safe while allowing
+ *  `x.js" onload="…`. Over-escaping in text position is inert, so one function covers both. */
 function escapeHtml(t: string): string {
-  return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(t)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 function cap(t: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
-/** Stable, collision-safe DOM id for a flow card so a host page can deep-link one diagram. */
+/** Stable, collision-safe DOM id for a flow card so a host page can deep-link one diagram.
+ *  `kind` is sanitized alongside `ref`: resolveFlow only ever emits the four literals, but
+ *  FlowGraph.entity.kind is typed `string` and hand-built graphs are a supported use, so an
+ *  unsanitized kind would land unescaped in `id="…"`/`href="#…"`. */
 export function flowAnchorId(g: FlowGraph): string {
-  return `flow-${g.entity.kind}-${String(g.entity.ref).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  const safe = (s: unknown) => String(s).replace(/[^A-Za-z0-9_-]/g, '-');
+  return `flow-${safe(g.entity.kind)}-${safe(g.entity.ref)}`;
+}
+
+/** A CSS color safe to interpolate into a `<style>` block. Anything else is refused rather than
+ *  escaped: `accent` is documented as host-supplied config, and a white-label host that sources it
+ *  per-tenant would otherwise hand any tenant a `</style><script>` breakout. Callers that were
+ *  already passing hex (the documented contract) see no change. */
+function safeAccent(accent: string | undefined, fallback: string): string {
+  return accent && /^#[0-9a-fA-F]{3,8}$/.test(accent) ? accent : fallback;
 }
 
 export interface CardOptions {
@@ -75,10 +95,15 @@ export interface GalleryOptions extends CardOptions {
   mermaidSrc?: string;
   /** Extra note shown under the title. */
   subtitle?: string;
-  /** Brand accent (hex) for subtle highlights — links, the "Legend:" lead, the card's top rule, and
-   *  the pan/zoom controls' hover. Themed path only; defaults to the theme's link color. Pass your
-   *  own brand color here (from your host's config) rather than baking one into a theme, e.g.
-   *  `accent: '#1a6bb0'`. */
+  /** Brand accent for subtle highlights — links, the "Legend:" lead, the card's top rule, and the
+   *  pan/zoom controls' hover. Themed path only; defaults to the theme's link color. Pass your own
+   *  brand color here (from your host's config) rather than baking one into a theme, e.g.
+   *  `accent: '#1a6bb0'`.
+   *
+   *  MUST be a CSS hex color (`#rgb` … `#rrggbbaa`); this value is interpolated into a `<style>`
+   *  block, so anything else is IGNORED in favour of the theme's link color rather than escaped.
+   *  If you source it per-tenant, that rejection is the only thing between a hostile value and a
+   *  `</style><script>` breakout — don't defeat it by pre-formatting the string. */
   accent?: string;
   /** Themed galleries only: anchor ids ({@link flowAnchorId}) to render pre-expanded. Cards not in
    *  the set render collapsed. A themed gallery is always collapsible with a table-of-contents. */
@@ -115,7 +140,7 @@ export function renderFlowCards(graphs: FlowGraph[], opts: CardOptions = {}): st
 
 /**
  * The `<script>` tags a host page needs to render embedded `.mermaid` blocks itself
- * (e.g. ns-onboard's review report). `securityLevel: 'strict'` is MANDATORY — it is the
+ * (e.g. a review report). `securityLevel: 'strict'` is MANDATORY — it is the
  * second escaping layer `mermaid.ts` depends on; do not make it caller-configurable.
  */
 export function mermaidBootstrap(opts: { theme?: FlowTheme; mermaidSrc?: string } = {}): string {
@@ -129,7 +154,7 @@ ${mermaidScriptTag(opts.mermaidSrc)}
 export function renderGalleryHtml(domain: string, graphs: FlowGraph[], opts: GalleryOptions = {}): string {
   const mermaidSrc = opts.mermaidSrc ?? MERMAID_CDN;
   const subtitle = opts.subtitle ?? `resolved from snapshot · ${graphs.length} flows`;
-  // Themed path (light for ns-onboard, or explicit dark-neo). No theme → the original dark
+  // Themed path (light for a review context, or explicit dark-neo). No theme → the original dark
   // document below, byte-identical (the Worker depends on this).
   if (opts.theme) return themedGalleryHtml(domain, graphs, mermaidSrc, subtitle, opts.theme, opts.expand, opts.accent);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -194,7 +219,7 @@ ${mermaidScriptTag(mermaidSrc)}
 </body></html>`;
 }
 
-/** Themed gallery document — light (ns-onboard review context) or explicit dark-neo. Parallel to
+/** Themed gallery document — light (review context) or explicit dark-neo. Parallel to
  *  the legacy dark document in {@link renderGalleryHtml}; kept separate so that path stays byte-identical. */
 function themedGalleryHtml(
   domain: string,
@@ -210,7 +235,7 @@ function themedGalleryHtml(
     ? { scheme: 'light', pageBg: '#fafafa', text: '#1e293b', sub: '#64748b', cardBg: '#ffffff', cardBorder: '#e2e8f0', meta: '#64748b', mermaidBg: '#f8fafc', notes: '#b45309', legendText: '#475569', legendBg: '#ffffff', lightboxBg: 'rgba(248,250,252,.96)', hint: '#64748b', shadow: 'box-shadow:0 1px 2px rgba(0,0,0,.04);', link: '#21618c' }
     : { scheme: 'dark', pageBg: '#0f1115', text: '#e6e6e6', sub: '#8a94a6', cardBg: '#161a22', cardBorder: '#232a36', meta: '#7b8494', mermaidBg: '#0c0e12', notes: '#c9a24a', legendText: '#aab', legendBg: '#161a22', lightboxBg: 'rgba(6,8,12,.95)', hint: '#8a94a6', shadow: '', link: '#7db3e6' };
   const initTheme = light ? 'base' : 'dark';
-  const brandAccent = accent || c.link;
+  const brandAccent = safeAccent(accent, c.link);
   const single = graphs.length === 1; // a one-flow gallery (e.g. the portal modal) needs no contents nav
   const isOpen = (g: FlowGraph) => single || (!!expand && expand.has(flowAnchorId(g)));
 
