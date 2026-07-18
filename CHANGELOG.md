@@ -5,6 +5,22 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-07-17
+
+### Added
+
+- **`NsWriteClient` — the write surface this library was planned to grow.** A separate class over a
+  private fetch transport (`post`/`put`/`delete`, injecting `synchronous: 'yes'` so a create returns the
+  created resource inline instead of a 202), with typed device methods (`getDevices`, `getDevice`,
+  `createDevice`, `deleteDevice`). The read-only `NsClient` charter is untouched: reads and writes are two
+  classes, so a consumer that only wants to read holds `NsClient` and has no write method to call. Both
+  share the `assertBareServer` SSRF guard. Offline tests use a recording mock fetch.
+
+### Changed
+
+- **`NsApiError` gains an optional trailing `method`** (set by the write client, unset for reads). Purely
+  additive — existing `(message, status, path, body)` call sites are unchanged.
+
 ## [0.1.2] — 2026-07-16
 
 A security-hardening release. Every item below hardens the library **as a dependency in someone
