@@ -102,10 +102,11 @@ It's enforced structurally: `tsconfig.json` sets `"types": []` with no `@types/n
 is the feature. It's what lets the same built output run in a Cloudflare Worker, in Node, and in a
 browser.
 
-### 7. Read-only is a charter, not an oversight
+### 7. The read/write split is a charter, not an oversight
 
-`NsClient` exposes only `get()`. Never add a mutating method to it. Writes belong in a separate,
-explicitly-reviewed client — the point is that a consumer can hold this one and know it cannot write.
+`NsClient` exposes only `get()`. **Never add a mutating method to it.** Writes live in a separate,
+explicitly-reviewed client — `NsWriteClient` — the point being that a consumer can hold `NsClient` and know
+it cannot write. A new write capability extends `NsWriteClient` (or a sibling), never `NsClient`.
 
 ### 8. Never put data in a Mermaid ID position
 

@@ -18,7 +18,8 @@ in a browser.
 | `themes.ts` | Theme registry: node palettes + Mermaid base/look + app chrome, as plain data. |
 | `jwt.ts` | `ns_t` validation: `verify` (cached, live) / `validateJwtFormat` (local). |
 | `principal.ts` / `policy.ts` / `sensitivity.ts` | Identity normalization + a declarative allow-list policy engine. |
-| `nsClient.ts` | Read-only NS API v2 client (`NsClient`) + `fetchDomainSnapshot`. |
+| `nsClient.ts` | Read-only NS API v2 client (`NsClient`, `get()` only) + `fetchDomainSnapshot`. |
+| `nsWriteClient.ts` | The **separate** write client (`NsWriteClient`) — device provisioning; never mixed into `NsClient`, so the read client stays write-incapable. |
 | `index.ts` | The public barrel — the surface every host imports. |
 | `*.selftest.ts` | Dev harnesses (Node, `tsx`). **Excluded from the build**, never shipped. |
 

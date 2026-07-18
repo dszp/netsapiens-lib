@@ -6,8 +6,10 @@ never `node:*`.
 
 Five capabilities, one dependency-free package:
 
-- **Read-only NS API v2 client** — `NsClient` (bearer auth, injectable `fetch`) +
-  `fetchDomainSnapshot(client, domain)` which assembles a routing-relevant domain snapshot.
+- **NS API v2 client (read + write)** — `NsClient` (read-only: `get()` + `fetchDomainSnapshot(client,
+  domain)` which assembles a routing-relevant domain snapshot) plus `NsWriteClient`, a **separate** write
+  client (device provisioning). Both are bearer-auth with an injectable `fetch`; holding the read client
+  still cannot write.
 - **JWT (`ns_t`) validation** — `verify()` (cheap local format gate → cached live `/jwt` check) and
   `validateJwtFormat()`. Pluggable `VerdictCache` (inject the Workers Cache API / KV / DO;
   `MemoryVerdictCache` for dev). Anti-overload by design — a bad/expired token never hits the server.
@@ -61,13 +63,14 @@ Two composites are provided because they're multi-read and worth getting right o
 
 The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export.
 
-### Read-only by charter
+### Read/write split by charter
 
 `NsClient` exposes **`get()` and nothing else**, and `verify()` only ever issues `GET /jwt`. That is a
 deliberate boundary, not a missing feature: this library is built for tools that visualize and audit a
 NetSapiens domain, where "it cannot possibly write" is a property worth having structurally rather
-than by convention. Writes belong in a separate, explicitly-reviewed client. If a write surface is
-added here later it will be a distinct class, never new methods on `NsClient`.
+than by convention. Writes live in a **separate** class — `NsWriteClient`, a small, explicitly-reviewed
+surface (device provisioning) — never as new methods on `NsClient`. So a consumer that holds the read
+client still cannot write; that guarantee holds by construction, not by convention.
 
 ### Configuration binds to *your* deployment
 
