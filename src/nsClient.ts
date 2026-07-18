@@ -18,6 +18,8 @@ export class NsApiError extends Error {
     public readonly status: number,
     public readonly path: string,
     public readonly body: unknown,
+    /** HTTP method — set by the write client; optional so read-client call sites stay unchanged. */
+    public readonly method?: string,
   ) {
     super(message);
     this.name = 'NsApiError';
