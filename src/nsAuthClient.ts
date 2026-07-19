@@ -81,9 +81,18 @@ export class NsAuthClient {
     return (parsed && typeof parsed === 'object' ? parsed : {}) as NsTokenResponse;
   }
 
+  /**
+   * Confirm an end user's credentials via OAuth2 password-grant.
+   *
+   * Contract: `ok` is true IF AND ONLY IF the token response carried a non-empty `access_token`.
+   * NetSapiens can return HTTP 200 with an empty/in-band-error body (no `access_token`) — that is
+   * NOT a successful login, so a bare 2xx is not sufficient. A 4xx maps to `{ ok: false }`; a 5xx /
+   * network error rethrows so a caller cannot mistake an upstream outage for a failed login.
+   */
   async verifyCredentials(username: string, password: string): Promise<{ ok: boolean; token?: NsTokenResponse }> {
     try {
       const token = await this.passwordGrant(username, password);
+      if (!token.access_token) return { ok: false };
       return { ok: true, token };
     } catch (e) {
       if (e instanceof NsAuthError && e.status >= 400 && e.status < 500) return { ok: false };

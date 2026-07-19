@@ -45,6 +45,11 @@ const cfg = (fetchImpl: typeof fetch) => ({ server: 'api.example.com', clientId:
   const verified401 = await new NsAuthClient(cfg(mk(401, { error: 'invalid_grant' }))).verifyCredentials('x', 'y');
   ok(verified401.ok === false && verified401.token === undefined, 'verifyCredentials returns ok:false on a 401');
 
+  // verifyCredentials returns ok:false on a 200 whose body lacks access_token (fail-open regression:
+  // NS can return HTTP 200 with an empty/in-band-error body carrying no token, which is NOT a login).
+  const verifiedTokenless = await new NsAuthClient(cfg(mk(200, { user: '100', domain: 'demo.12345.service' }))).verifyCredentials('x', 'y');
+  ok(verifiedTokenless.ok === false, 'verifyCredentials returns ok:false on a 200 with no access_token');
+
   // verifyCredentials RETHROWS on a 5xx (caller fails closed).
   let err503: any;
   try { await new NsAuthClient(cfg(mk(503, 'upstream down'))).verifyCredentials('x', 'y'); } catch (e) { err503 = e; }
