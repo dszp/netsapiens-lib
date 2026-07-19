@@ -5,6 +5,24 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] — 2026-07-19
+
+### Added
+
+- **`NsAuthClient` — the NetSapiens OAuth2 password-grant surface.** Node-free, two jobs off one call:
+  `verifyCredentials(username, password)` confirms an end user's credentials (the check an external SSO
+  webhook needs), and `passwordGrant(...)` mints an access token for a reseller/admin user — an alternative
+  to a static API key for the write client. Fail-closed by contract: a 4xx means "bad credentials"
+  (`{ ok: false }`), while a 5xx or network error **rethrows**, so a caller can't mistake an upstream outage
+  for a failed login. `ok` is true **if and only if** a non-empty `access_token` was issued (NetSapiens can
+  answer `200` with an in-band error body). Reuses the `assertBareServer` SSRF guard; adds `NsAuthError`.
+- **`evaluateEligibility` — a generic, deployment-neutral predicate** answering "is this NetSapiens user a
+  real end-user candidate?" for any app integration. Pure; precedence is HARD (system/service users, i.e. a
+  non-blank service code, and structurally-invalid extensions — never overridable) → SOFT (name matchers,
+  extension lists, a no-device heuristic that only *tightens* a name match; overridable per configured
+  category, or by an explicit per-request force) → an email precondition → ok. Consumers supply an
+  `EligibilityConfig`; env parsing stays in the consumer.
+
 ## [0.1.3] — 2026-07-17
 
 ### Added
