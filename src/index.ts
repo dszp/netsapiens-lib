@@ -38,6 +38,7 @@ export {
 export { resolveSvgSize, rasterizerScript } from './raster.js';
 export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';
+export { NsAuthClient, NsAuthError, type NsAuthClientConfig, type NsTokenResponse } from './nsAuthClient.js';
 export {
   verify,
   validateJwtFormat,
