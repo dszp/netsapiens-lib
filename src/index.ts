@@ -72,3 +72,12 @@ export {
   type Policy,
   type FeaturePolicies,
 } from './policy.js';
+export {
+  evaluateEligibility,
+  type SoftCategory,
+  type EligibilityConfig,
+  type EligUser,
+  type EligContext,
+  type EligTier,
+  type EligResult,
+} from './eligibility.js';
