@@ -39,6 +39,16 @@ export interface EligContext {
   isReseller: boolean;
   /** Reseller RUNTIME force: bypass ALL soft categories — never HARD, never the email precondition. */
   force?: boolean;
+  /**
+   * Credentials are delivered by LOGIN, not email, so the email precondition does not apply. Set this on
+   * an SSO/JIT path, where the account is created from the user's own directory credentials on first
+   * sign-in and nothing is mailed. It waives ONLY the email precondition — never HARD, never SOFT.
+   *
+   * The caller decides WHEN to set it; the engine only guarantees the outcome is the same everywhere it
+   * is set. A waived result stays distinguishable via `emailWaived`, so a caller can still branch on
+   * "eligible, but there is no address to mail anything to".
+   */
+  emailNotRequired?: boolean;
 }
 
 export type EligTier = 'ok' | 'hard' | 'soft' | 'precondition';
@@ -46,6 +56,12 @@ export interface EligResult {
   activatable: boolean;
   tier: EligTier;
   reasons: string[];
+  /**
+   * The user has no email address and `emailNotRequired` waived the precondition. `tier` is `'ok'` —
+   * they are eligible — but there is no address, so a caller must not try to mail them credentials.
+   * Absent whenever an address is present or the precondition was not reached.
+   */
+  emailWaived?: true;
 }
 
 const blank = (s?: string): boolean => !s || s.trim() === '';
@@ -85,7 +101,17 @@ export function evaluateEligibility(user: EligUser, ctx: EligContext, config: El
   }
 
   if (blank(user.email)) {
-    return { activatable: false, tier: 'precondition', reasons: ['an email address is required to activate'] };
+    if (!ctx.emailNotRequired) {
+      return { activatable: false, tier: 'precondition', reasons: ['an email address is required to activate'] };
+    }
+    // Waived: credentials arrive by login, not mail. Eligible — but say the address is missing, so a
+    // caller that WOULD have mailed something can still tell.
+    return {
+      activatable: true,
+      tier: 'ok',
+      reasons: ['no email address (precondition waived: credentials are not emailed)'],
+      emailWaived: true,
+    };
   }
 
   return { activatable: true, tier: 'ok', reasons: [] };

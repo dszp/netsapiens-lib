@@ -66,5 +66,30 @@ const ctx: EligContext = { domain: 'demo.12345.service', isReseller: false };
   ok(r.tier === 'soft', 'per-domain ext exclusion applies');
 }
 
+// emailNotRequired — waives ONLY the email precondition (login-delivered credentials), and the waiver
+// stays visible via emailWaived so a caller still knows there is no address to mail.
+{
+  const r = evaluateEligibility({ ext: '100', names: ['Alice'] }, { ...ctx, emailNotRequired: true }, cfg());
+  ok(r.activatable === true && r.tier === 'ok', 'emailNotRequired — no email is eligible');
+  ok(r.emailWaived === true, 'emailNotRequired — the waiver is reported via emailWaived');
+  ok(r.reasons.length === 1, 'emailNotRequired — the missing address is still stated in reasons');
+}
+{
+  const r = evaluateEligibility({ ext: '100', email: 'a@example.com' }, { ...ctx, emailNotRequired: true }, cfg());
+  ok(r.tier === 'ok' && r.emailWaived === undefined, 'emailNotRequired with an address present — nothing waived');
+}
+{
+  const r = evaluateEligibility({ ext: '100', srvCode: 'x' }, { ...ctx, emailNotRequired: true }, cfg());
+  ok(r.tier === 'hard' && r.emailWaived === undefined, 'emailNotRequired does NOT rescue a HARD user');
+}
+{
+  const r = evaluateEligibility({ ext: '100', names: ['SHARED VOICEMAIL'] }, { ...ctx, emailNotRequired: true }, cfg());
+  ok(r.tier === 'soft' && r.emailWaived === undefined, 'emailNotRequired does NOT rescue a SOFT exclusion');
+}
+{
+  const r = evaluateEligibility({ ext: '100', names: ['Alice'] }, ctx, cfg());
+  ok(r.tier === 'precondition' && r.emailWaived === undefined, 'without the flag the precondition still fires');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

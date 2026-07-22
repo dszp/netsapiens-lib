@@ -5,6 +5,25 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] — 2026-07-22
+
+### Added
+
+- **`evaluateEligibility` can waive the email precondition, and says when it did.** The precondition
+  exists because activation typically *emails* credentials — but on an SSO/JIT path the account is created
+  from the user's own directory credentials at first sign-in and nothing is mailed, so requiring an address
+  there wrongly rejects eligible users. Set `EligContext.emailNotRequired` on those paths. It waives
+  **only** the email precondition — never HARD, never SOFT. The caller still decides *when* to set it; the
+  engine only guarantees the outcome is identical everywhere it is.
+
+  A waived result stays distinguishable: `EligResult.emailWaived` is `true` (and the missing address is
+  stated in `reasons`) while `tier` is `'ok'`. So a caller can still branch on "eligible, but there is no
+  address to mail anything to" — previously the only way to know that was to re-implement the waiver
+  outside the engine, which is exactly the duplication this removes.
+
+  Additive and backward-compatible: omit `emailNotRequired` and behavior is unchanged; `emailWaived` is
+  absent unless a waiver actually happened.
+
 ## [0.1.4] — 2026-07-19
 
 ### Added
