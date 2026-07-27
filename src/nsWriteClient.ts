@@ -14,6 +14,7 @@
  */
 import type { Rec } from './model.js';
 import { NsApiError, assertBareServer, asArray } from './nsClient.js';
+import { ensureNsDevice, type EnsureNsDeviceOptions, type EnsureNsDeviceResult } from './nsDevice.js';
 
 export interface NsWriteClientConfig {
   /** API host, e.g. "api.example.com". Base URL becomes https://{server}/ns-api/v2. */
@@ -70,9 +71,35 @@ export class NsWriteClient {
   createDevice(domain: string, user: string, device: string, extra: Rec = {}): Promise<Rec> {
     return this.post<Rec>(`/domains/${enc(domain)}/users/${enc(user)}/devices`, { device, ...extra });
   }
+  /**
+   * Update a device in place.
+   *
+   * The reason this exists rather than callers using `put()`: rotating
+   * `device-sip-registration-password` must **not** be done by deleting and recreating the device, which
+   * would discard everything else on it — emergency caller id, the provisioning MAC/model link, SRTP and
+   * transport settings. A PUT changes the one field and preserves the rest.
+   */
+  updateDevice(domain: string, user: string, device: string, changes: Rec): Promise<Rec> {
+    return this.put<Rec>(`/domains/${enc(domain)}/users/${enc(user)}/devices/${enc(device)}`, changes);
+  }
+
   /** Delete a device. */
   deleteDevice(domain: string, user: string, device: string): Promise<Rec> {
     return this.delete<Rec>(`/domains/${enc(domain)}/users/${enc(user)}/devices/${enc(device)}`);
+  }
+
+  /**
+   * Convenience wrapper over {@link ensureNsDevice} — ensure a device exists and return its SIP password,
+   * optionally rotating it. See that function for the semantics, and for why rotation matters.
+   *
+   * Deliberately a **one-line delegation, not an implementation**. Every other method on this class is
+   * exactly one HTTP request; this one is several with branching, so the logic lives in a standalone
+   * function that composes over any writer (a consumer may have its own client) and that consumers can mock as
+   * a plain 4-method object instead of stubbing a whole client. This method exists only so the capability
+   * is discoverable from the client you already hold.
+   */
+  ensureDevice(opts: EnsureNsDeviceOptions): Promise<EnsureNsDeviceResult> {
+    return ensureNsDevice(this, opts);
   }
 
   async #request<T>(method: string, path: string, body?: Rec, query?: Record<string, string | number>): Promise<T> {

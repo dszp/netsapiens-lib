@@ -1,6 +1,6 @@
 {
   "name": "@dszp/netsapiens-lib",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Portable, Node-free NetSapiens toolkit: read-only API client, JWT (ns_t) validation, and a snapshot -> FlowGraph -> Mermaid call-flow resolver/renderer. Runs unchanged in a Cloudflare Worker, Node, or the browser.",
   "type": "module",
   "license": "MIT",
@@ -12,11 +12,17 @@
     "type": "git",
     "url": "git+https://github.com/dszp/netsapiens-lib.git"
   },
-  "bugs": { "url": "https://github.com/dszp/netsapiens-lib/issues" },
+  "bugs": {
+    "url": "https://github.com/dszp/netsapiens-lib/issues"
+  },
   "homepage": "https://github.com/dszp/netsapiens-lib#readme",
   "//publishConfig": "No `provenance: true` here on purpose: it would force provenance on EVERY publish, including the manual first one that a brand-new package requires (npm can only configure trusted publishing on a package that already exists). Provenance comes from the workflow's explicit `npm publish --provenance` in CI.",
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=20" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "netsapiens",
     "voip",
@@ -49,8 +55,8 @@
     "build:watch": "tsc -p tsconfig.json --watch",
     "//prepublishOnly": "Publish-only build with sourcemaps OFF. The `files` globs exclude dist/**/*.map on purpose (they point at src/, which does not ship), but tsc still emits a //# sourceMappingURL pointer into every .js/.d.ts -- so consumers' devtools 404 chasing maps that were never published. Dropping the pointer at publish time is what the exclusion always meant. A normal `pnpm build` keeps maps for link: consumers.",
     "prepublishOnly": "tsc -p tsconfig.json --sourceMap false --declarationMap false",
-    "//test": "The offline suite — green on a fresh clone with no credentials and no fixtures. test:ns is NOT included: it needs a domain snapshot that (correctly) isn't in the repo.",
-    "test": "pnpm run test:jwt && pnpm run test:principal && pnpm run test:resolver && pnpm run test:raster && pnpm run test:nswrite && pnpm run test:eligibility && pnpm run test:nsauth",
+    "//test": "The offline suite \u2014 green on a fresh clone with no credentials and no fixtures. test:ns is NOT included: it needs a domain snapshot that (correctly) isn't in the repo.",
+    "test": "pnpm run test:jwt && pnpm run test:principal && pnpm run test:resolver && pnpm run test:raster && pnpm run test:nswrite && pnpm run test:eligibility && pnpm run test:nsauth && pnpm test:nssubs && pnpm test:nsdevice",
     "test:jwt": "tsx src/jwt.selftest.ts",
     "test:ns": "tsx src/nsClient.selftest.ts",
     "test:nswrite": "tsx src/nsWriteClient.selftest.ts",
@@ -58,7 +64,9 @@
     "test:principal": "tsx src/principal.selftest.ts",
     "test:resolver": "tsx src/resolver.selftest.ts",
     "test:raster": "tsx src/raster.selftest.ts",
-    "test:eligibility": "tsx src/eligibility.selftest.ts"
+    "test:eligibility": "tsx src/eligibility.selftest.ts",
+    "test:nssubs": "tsx src/nsSubscriptions.selftest.ts",
+    "test:nsdevice": "tsx src/nsDevice.selftest.ts"
   },
   "devDependencies": {
     "tsx": "^4.22.4",

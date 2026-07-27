@@ -38,7 +38,36 @@ export {
 export { resolveSvgSize, rasterizerScript } from './raster.js';
 export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';
+export {
+  ensureNsDevice,
+  generateSipPassword,
+  SIP_PW_FIELD,
+  type NsDeviceWriter,
+  type EnsureNsDeviceOptions,
+  type EnsureNsDeviceResult,
+} from './nsDevice.js';
 export { NsAuthClient, NsAuthError, type NsAuthClientConfig, type NsTokenResponse } from './nsAuthClient.js';
+export {
+  NsSubscriptionsClient,
+  NsSubscriptionConflictError,
+  SUBSCRIPTION_MODELS,
+  isSubscriptionModel,
+  nsDatetime,
+  parseNsDatetime,
+  subscriptionFromWire,
+  createInputToWire,
+  updateInputToWire,
+  planSubscriptions,
+  type SubscriptionModel,
+  type SubscriptionStatus,
+  type Subscription,
+  type CreateSubscriptionInput,
+  type UpdateSubscriptionInput,
+  type NsSubscriptionsClientConfig,
+  type DesiredSubscription,
+  type SubscriptionAction,
+  type PlanSubscriptionsOptions,
+} from './nsSubscriptions.js';
 export {
   verify,
   validateJwtFormat,

@@ -7,6 +7,72 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.6] — Unreleased
 
+### Added
+
+- **Event Subscriptions — `NsSubscriptionsClient`, plus a pure reconciliation planner.** NetSapiens can
+  POST change events to a URL you own; this is the client for managing those subscriptions and the logic
+  for keeping them correct. It is a **separate class on purpose**: `NsClient` is read-only by charter, and
+  `NsWriteClient` is unsuitable here for two concrete reasons — it injects `synchronous: 'yes'` into every
+  write, and its `delete()` sends no body, while `DELETE /subscriptions/{id}` *requires* one
+  (`subscription_id`, plus `domain` below Super User scope).
+
+  `planSubscriptions()` is pure — no I/O, no clock — so the whole decision surface is testable and
+  shareable. It only ever acts on subscriptions whose `post-url` matches a prefix you own; anything else on
+  the same domain is reported, never modified. Also exported: `SUBSCRIPTION_MODELS` (the 11-value enum,
+  for validating config before it reaches the API), `isSubscriptionModel`, and `nsDatetime` /
+  `parseNsDatetime`.
+
+  Four API behaviours worth knowing, all observed against a live 44.4.x core and **not** what the published
+  spec says:
+
+  * **Always send an explicit `expiresAt`.** It is honoured verbatim *even when the request is
+    authenticated with a one-hour OAuth access token* — the expiry is not clamped to the credential's
+    lifetime. Omitting it makes the subscription's lifetime depend on how you authenticated (an API key
+    yields ~20 years; a timed token yields that token's expiry).
+  * **`subscription-geo-support` behaves as `no` when omitted**, though the spec documents the default as
+    `yes`. Send it explicitly or delivery is pinned to one node and stops when that node is down.
+  * **Datetimes are asymmetric.** Reads return ISO-8601 with an offset; the documented *write* format is
+    `YYYY-MM-DD HH:MM:SS`. `parseNsDatetime` accepts both, `nsDatetime` emits the documented form, and a
+    bare timestamp is read as UTC.
+  * **`error-count > 0` is normal on a healthy subscription** — one live example sat at 7 errors across
+    7,195 posts while `status` stayed `active`. Treat `status === 'error'` or a sustained error *rate* as
+    the signal, and do not reset the counters as routine maintenance: they are the only history the API
+    keeps.
+
+  Note also that the domain-scoped routes (`/domains/{domain}/subscriptions`, v45+) are **absent on a v44
+  core**, which answers `404 No Route Found`. The flat methods are the portable ones; treat the
+  domain-scoped variants as an opt-in optimization.
+
+- **`ensureNsDevice` — device orchestration, with optional SIP password rotation.** Ensures a named device
+  exists and returns its SIP registration password: read it back with a per-device GET when present
+  (a device *list* may omit the password), create it when absent, or refuse to create with
+  `mayCreate: false`.
+
+  `rotateExisting` replaces the password of a device that **already existed**, and it closes a failure that
+  is genuinely hard to diagnose: reusing the stored password leaves any *other* endpoint still holding it
+  with valid credentials for the same address-of-record. Both clients then register, the most recent wins,
+  and they trade the registration back and forth — intermittent call failures with nothing obviously wrong
+  in either system. Rotate only where something has just declared the device to belong to one client (a
+  deliberate activation, or a first-time provision); **not** on a per-login path, where concurrent runs
+  would churn the credential and can race a re-registration.
+
+  Rotation is **best-effort and never throws**: on failure the result carries the pre-existing password
+  plus `rotated: false` and `rotateError`, because failing the whole operation over a hardening step would
+  be worse than the contention it prevents. A core without the device `PUT` lands there.
+
+  Also exported: `generateSipPassword` (alphanumeric only — the value passes through SIP digest auth and
+  provisioning templates, where punctuation buys no real entropy and risks an escaping bug; characters are
+  rejection-sampled rather than modulo-reduced, and at least one uppercase, one lowercase and one digit are
+  guaranteed), `SIP_PW_FIELD`, and the structural `NsDeviceWriter`.
+
+- **`NsWriteClient.updateDevice()`**, and a convenience `NsWriteClient.ensureDevice()`.
+  `updateDevice` exists so a password can be rotated **in place**: deleting and recreating the device would
+  discard everything else on it — emergency caller id, the provisioning MAC/model link, SRTP and transport
+  settings. `ensureDevice()` is a deliberate one-line delegation to `ensureNsDevice` so the capability is
+  discoverable from a client you already hold; the logic stays a standalone function because every other
+  method on that class is exactly one HTTP request, and because a consumer with its own write client can
+  still use it.
+
 ### Fixed
 
 - **Auto-attendant second-level menus ("Add Tier") now render as menus, not as a dead-end prompt.** A

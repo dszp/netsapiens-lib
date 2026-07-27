@@ -20,6 +20,8 @@ in a browser.
 | `principal.ts` / `policy.ts` / `sensitivity.ts` | Identity normalization + a declarative allow-list policy engine. |
 | `nsClient.ts` | Read-only NS API v2 client (`NsClient`, `get()` only) + `fetchDomainSnapshot`. |
 | `nsWriteClient.ts` | The **separate** write client (`NsWriteClient`) — device provisioning; never mixed into `NsClient`, so the read client stays write-incapable. |
+| `nsSubscriptions.ts` | Event Subscriptions (`NsSubscriptionsClient`) + the pure `planSubscriptions` reconciler. A third client rather than methods on the other two: `NsClient` is read-only by charter, and `NsWriteClient` injects `synchronous:'yes'` on writes and sends no body on `DELETE` — which `DELETE /subscriptions/{id}` requires. |
+| `nsDevice.ts` | `ensureNsDevice` — exists-or-create, read the SIP password, optionally rotate it. A standalone function, not a client method, because it is several requests with branching (every `NsWriteClient` method is exactly one) and because consumers mock it as a plain object. Mechanism only: the device NAME, whether creation is allowed, and when rotation is appropriate are all the caller's decisions. |
 | `index.ts` | The public barrel — the surface every host imports. |
 | `*.selftest.ts` | Dev harnesses (Node, `tsx`). **Excluded from the build**, never shipped. |
 

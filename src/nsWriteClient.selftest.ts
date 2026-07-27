@@ -67,6 +67,35 @@ const B = 'https://api.example.com/ns-api/v2';
   try { new NsWriteClient({ server: 'api.example.com@evil.example', token: 't' }); } catch { guarded = true; }
   ok(guarded, 'NsWriteClient rejects a non-bare server (SSRF guard)');
 
+
+  // updateDevice → PUT the specific device path, rotating one field in place.
+  await client(200, { device: '100r' }).updateDevice('acme.example', '100', '100r', {
+    'device-sip-registration-password': 'NEWPASSWORD123456',
+  });
+  ok(last.method === 'PUT', 'updateDevice uses PUT');
+  ok(last.url === `${B}/domains/acme.example/users/100/devices/100r`, 'updateDevice hits the specific device path');
+  ok(last.body?.['device-sip-registration-password'] === 'NEWPASSWORD123456', 'updateDevice sends the rotated password');
+  ok(last.body?.synchronous === 'yes', 'updateDevice injects synchronous:yes like every other write');
+  ok(!('device' in (last.body ?? {})), 'updateDevice does not resend the device id in the body — it is in the path');
+  {
+    // The point of PUT over delete+create: nothing else on the device is touched.
+    await client(200, {}).updateDevice('acme.example', '100', '100r', { 'device-sip-registration-password': 'X' });
+    const keys = Object.keys(last.body ?? {}).filter((k) => k !== 'synchronous');
+    ok(keys.length === 1 && keys[0] === 'device-sip-registration-password', 'only the named field is sent, so unrelated device settings survive');
+  }
+  {
+    let threw = 0;
+    try {
+      await client(404, { code: 404, message: 'No Route Found' }).updateDevice('acme.example', '100', '100r', { x: 1 });
+    } catch (e: any) {
+      threw = e.status;
+    }
+    ok(threw === 404, 'a 404 (endpoint absent on the release) surfaces as NsApiError so a caller can fall back');
+  }
+  ok(encodeURIComponent('a/b') === 'a%2Fb', 'sanity: path params are encoded by enc()');
+  await client(200, {}).updateDevice('acme.example', '10/0', '10/0r', {});
+  ok(last.url.includes('10%2F0'), 'updateDevice percent-encodes the user and device path segments');
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
