@@ -5,6 +5,27 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — Unreleased
+
+### Fixed
+
+- **Auto-attendant second-level menus ("Add Tier") now render as menus, not as a dead-end prompt.** A
+  keypress that opens a nested tier appears in the dialplan as `Prompt_<menu>.Case_N → Prompt <tierId>`,
+  which is indistinguishable from a plain play-a-prompt option unless you notice that `Prompt_<tierId>.`
+  rules also exist. The resolver drew "🔊 Play prompt \<id\>" and stopped, hiding the entire submenu. It
+  now recurses into the tier with the same grammar, taking the tier's script text from the
+  `/autoattendants` detail's `option-N.auto-attendant` — the two endpoints each hold half of a tier (the
+  dialplan has the id but not the nesting, the detail has the nesting but no id) and join only on the
+  keypress digit. Recursion is unbounded, since the dialplan grammar is; a tier keyed back to an earlier
+  menu draws the existing loops-back leaf. "Repeat greeting" nodes are now per-tier, so a submenu's
+  timeout no longer collapses onto the top menu's.
+
+- **A played message is no longer drawn as a dead end.** An `Announce` keypress is followed by an
+  `Announce_<id>.Done` rule saying where the call goes when the message finishes — almost always back to
+  the menu. That rule was never read, so every message node terminated the flow. It is now followed;
+  a return to the same menu reuses the shared "Repeat greeting" node, since it is the same behavior as
+  the no-key default.
+
 ## [0.1.5] — 2026-07-22
 
 ### Added

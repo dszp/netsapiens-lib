@@ -747,12 +747,25 @@ function aaApp(app: string, dest: string, idx: Index, b: Builder): string {
  *   *                     → unassigned key ("Unknown Input")
  *   Default               → no-key timeout
  * Apps: Announce → play-message; Prompt→own prompt id → repeat greeting; else via aaApp().
+ *
+ * A `Prompt` option pointing at a DIFFERENT prompt id that has its own `Prompt_<id>.` rule family in
+ * this same dialplan is a SECOND-LEVEL MENU — the portal's "Add Tier" on a keypress. Recurse into it
+ * rather than rendering a dead-end "Play prompt <id>" leaf. The tier's prompt id exists ONLY in the
+ * dialplan; the /autoattendants detail nests the tier as `option-N.auto-attendant` with no id at all,
+ * so the two are joined by the keypress digit. Portal-created tiers are one level deep, but the
+ * dialplan grammar is not, so this recurses without a depth bound; claim()/enter() make a back-link
+ * to an ancestor tier draw as a "loops back" reference leaf instead of recursing forever.
+ *
  * `detailTier` (the /autoattendants option-N structure, when present) enriches each key with its
  * CNAM prefix + play-message script/audio, which the dialplan lacks.
  */
-function renderAaFromDialrules(rules: Rec[], startingPrompt: string, fromId: string, ext: string, idx: Index, b: Builder, detailTier?: Rec) {
+function renderAaFromDialrules(rules: Rec[], startingPrompt: string, fromId: string, ext: string, idx: Index, b: Builder, detailTier?: Rec, tiers: Map<string, string> = new Map()) {
   const prefix = `${startingPrompt}.`;
   const promptId = startingPrompt.replace(/^Prompt_/i, ''); // e.g. "912201"
+  // prompt id -> the node whose menu it is. A deeper tier keyed back to an earlier prompt ("9 for the
+  // main menu") is a jump to THAT node, not a second copy of it; Builder.edge turns it into a
+  // loops-back leaf when the target is an ancestor still being expanded.
+  tiers.set(promptId, fromId);
   let dialByExt = false;
   interface Opt { label: string; sort: string; dtmf: string; app: string; dest: string; }
   const opts: Opt[] = [];
@@ -784,10 +797,50 @@ function renderAaFromDialrules(rules: Rec[], startingPrompt: string, fromId: str
     const script = opt ? s(opt.audio?.['file-script-text']) : '';
     const label = o.label + (cnam && cnam !== '[*]' ? ` · ${cnam}` : '');
     let target: string;
-    if (/^announce/i.test(o.app)) target = b.node(`aaannounce_${ext}_${o.dest}`, 'prompt', `🔊 ${script ? `“${trim(script)}”` : 'Play message'}`, undefined, undefined, script.length > GREET_MAX ? script : undefined).id;
-    else if (/^prompt/i.test(o.app)) target = o.dest === promptId ? b.node(`aarepeat_${ext}`, 'prompt', '🔁 Repeat greeting', 're-plays the menu').id : b.node(`aaprompt_${ext}_${o.dest}`, 'prompt', '🔊 Play prompt', o.dest || undefined).id;
-    else target = aaApp(o.app, o.dest, idx, b);
+    if (/^announce/i.test(o.app)) {
+      const n = b.node(`aaannounce_${ext}_${o.dest}`, 'prompt', `🔊 ${script ? `“${trim(script)}”` : 'Play message'}`, undefined, undefined, script.length > GREET_MAX ? script : undefined);
+      if (n.isNew) announceReturn(o.dest, n.id); // only once — two keys may play the same message
+      target = n.id;
+    } else if (/^prompt/i.test(o.app)) {
+      if (o.dest === promptId) target = b.node(`aarepeat_${ext}_${promptId}`, 'prompt', '🔁 Repeat greeting', 're-plays the menu').id;
+      else if (tiers.has(o.dest)) target = tiers.get(o.dest)!;
+      else if (hasTier(o.dest)) return renderSubTier(o, opt, label);
+      else target = b.node(`aaprompt_${ext}_${o.dest}`, 'prompt', '🔊 Play prompt', o.dest || undefined).id;
+    } else target = aaApp(o.app, o.dest, idx, b);
     b.edge(fromId, target, 'menu', label);
+  };
+  /**
+   * Where the call goes once a played message finishes: the dialplan's `Announce_<id>.Done` rule.
+   * It is almost always `Prompt <this menu>` — i.e. the caller hears the message, then the menu again.
+   * Without this edge a message is drawn as a dead end, which is the one thing it never is.
+   * `Prompt <this menu>` reuses the shared "Repeat greeting" node (same node the no-key default lands
+   * on — identical behavior, so it should be identical on the diagram); a jump to another tier points
+   * at that tier's node. Anything else routes normally. An unrecognized prompt id gets no edge rather
+   * than an invented node.
+   */
+  const announceReturn = (announceId: string, fromAnnounce: string) => {
+    const done = rules.find((r) => s(r['dial-rule-matching-to-uri']) === `Announce_${announceId}.Done`);
+    if (!done) return;
+    const app = s(done['dial-rule-application']);
+    const dest = s(done['dial-rule-translation-destination-user']);
+    if (/^announce/i.test(app)) return; // message → message chain: not seen in the wild, don't guess
+    let back: string | undefined;
+    if (/^prompt/i.test(app)) back = dest === promptId ? b.node(`aarepeat_${ext}_${promptId}`, 'prompt', '🔁 Repeat greeting', 're-plays the menu').id : tiers.get(dest);
+    else back = aaApp(app, dest, idx, b);
+    if (back) b.edge(fromAnnounce, back, 'menu', 'then');
+  };
+  /** Does `dest` have its own rule family here — i.e. is it a nested menu tier, not a bare prompt? */
+  const hasTier = (dest: string) => !!dest && rules.some((r) => s(r['dial-rule-matching-to-uri']).startsWith(`Prompt_${dest}.`));
+  /** A second-level menu: its own node, then the same grammar again from that tier's prompt. */
+  const renderSubTier = (o: Opt, opt: Rec | undefined, label: string) => {
+    // Keyed by prompt id, not keypress: two keys may open the same tier, and that should be one node.
+    const greet = s(opt?.audio?.['file-script-text']);
+    const subId = b.node(`aa_${ext}_p${o.dest}`, 'attendant', `🔀 Submenu${o.dtmf ? ` (press ${o.dtmf})` : ''}`, greet ? `“${trim(greet)}”` : 'nested menu', undefined, greet.length > GREET_MAX ? greet : undefined).id;
+    b.edge(fromId, subId, 'menu', label);
+    if (!b.claim(subId)) return;
+    b.enter(subId);
+    renderAaFromDialrules(rules, `Prompt_${o.dest}`, subId, ext, idx, b, opt?.['auto-attendant'] as Rec | undefined, tiers);
+    b.leave(null);
   };
   for (const o of opts.sort((a, c) => a.sort.localeCompare(c.sort))) route(o);
   if (noKey) route(noKey);

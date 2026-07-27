@@ -97,6 +97,29 @@ These look like nitpicks and are not — each one is a bug that reached a real d
   give any new expandable node kind matching `enter`/`leave` calls.
 - **Auto-attendant menus are not in a backup** (inventory only). The authoritative menu lives in the
   AA's own dialplan, `<domain>_<ext>`: `Prompt_<id>` plays the greeting, `.Default` is the no-key/timeout
-  target, `.*` is the unassigned-key catch-all, `.<digit>` is a keypress, `.Case_[...]` is
-  dial-by-extension. The `/autoattendants/{prompt}` detail omits the no-key/star routing — read the
-  dialplan for the truth.
+  target, `.*` is the unassigned-key catch-all, `.Case_<digit>` is a keypress (`.Case_[*]` / `.Case_[#]`
+  the literal star/pound keys), and `.Case_[0-9][0-9]…` is dial-by-extension. The
+  `/autoattendants/{prompt}` detail omits the no-key/star routing — read the dialplan for the truth.
+- **A played message returns to the menu; the return is a separate rule.** A keypress whose application
+  is `Announce` plays a message, and `Announce_<id>.Done` in the same dialplan says where the call goes
+  afterward — nearly always `Prompt <this menu>`, i.e. the caller hears the message and lands back on the
+  menu. Read on its own, an `Announce` option looks like a dead end and isn't one. `Prompt <this menu>`
+  is behaviorally identical to the `.Default` no-key path, so the resolver points both at one shared
+  "Repeat greeting" node.
+- **Second-level menus ("Add Tier") are split across the two endpoints, joined by the keypress digit.**
+  The portal's per-key *Add Tier* builds a nested menu with its own prompt, options, and defaults, and
+  each endpoint holds only half of it:
+  - The **dialplan** has the tier's prompt id but not the nesting — the tier is a flat *sibling* rule
+    family in the same plan. `Prompt_<menu>.Case_5 → Prompt <tierId>` is byte-identical to a plain
+    play-a-prompt option; what distinguishes a tier is that `Prompt_<tierId>.` rules also exist.
+  - The **`/autoattendants/{prompt}` detail** has the nesting and the script text but *no id at all*:
+    the tier appears as `option-5.auto-attendant`, recursively the same schema as the top-level tier
+    (`option-N`, `no-key-press`, `unassigned-key-press`, `<n>-digit-dial-by-extension`). The enclosing
+    `option-5` carries **no** `destination-application`/`destination-user` — the tier *is* the
+    destination — and its `audio` is the tier's own menu prompt.
+
+  So neither side alone is enough, and the only thing linking them is the digit. `renderAaFromDialrules`
+  walks the dialplan and recurses when `Prompt_<dest>.` rules exist, pulling the tier's script from the
+  matching `option-N.auto-attendant`. The portal only offers one level; the dialplan grammar has no such
+  limit, so the recursion is unbounded and relies on `claim()`/`enter()` plus a prompt-id→node map to
+  turn a "press 9 for the main menu" back-link into a loops-back leaf instead of infinite descent.
