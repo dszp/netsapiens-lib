@@ -1,7 +1,7 @@
 {
   "name": "@dszp/netsapiens-lib",
   "version": "0.1.6",
-  "description": "Portable, Node-free NetSapiens toolkit: read-only API client, JWT (ns_t) validation, and a snapshot -> FlowGraph -> Mermaid call-flow resolver/renderer. Runs unchanged in a Cloudflare Worker, Node, or the browser.",
+  "description": "Portable, Node-free NetSapiens toolkit: split read/write API clients, JWT (ns_t) validation, and a snapshot -> FlowGraph -> Mermaid call-flow resolver/renderer. Runs unchanged in a Cloudflare Worker, Node, or the browser.",
   "type": "module",
   "license": "MIT",
   "author": {

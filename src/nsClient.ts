@@ -7,7 +7,7 @@
  * `fetchDomainSnapshot()` assembles the same `Snapshot` shape the resolver already consumes, so a
  * live domain flows end-to-end: domain + token → Snapshot → resolveFlow → FlowGraph.
  *
- * This tool never writes to NetSapiens — only GET is exposed.
+ * This client never writes — only GET is exposed. Writes live in the separate `NsWriteClient`.
  */
 
 import type { Rec, Snapshot } from './model.js';
@@ -36,12 +36,16 @@ export interface NsClientConfig {
 }
 
 /**
- * NS API v2 client — READ-ONLY BY DESIGN (the central gate for this whole tool).
+ * NS API v2 client — READ-ONLY BY DESIGN.
  *
  * The ONLY method is `get()`, which hardcodes `method: 'GET'`. There is deliberately no
- * post/put/delete/patch — the viewer must never mutate NetSapiens. Keep it that way: do not add a
- * mutating method here. Any write capability must be a separate, explicitly-reviewed client, not a
- * quiet addition to this one. This is the single choke point every NS call in the Worker flows through.
+ * post/put/delete/patch. Keep it that way: **do not add a mutating method here.** The point of this
+ * class is that holding one is proof you cannot write — a guarantee by construction, not convention,
+ * and adding a single mutating method destroys it for every consumer at once.
+ *
+ * Writes are a separate, explicitly-imported class: `NsWriteClient` (see `nsWriteClient.ts`). New
+ * write capability extends that one, never this one. `NsSubscriptionsClient` is a third client for
+ * the same reason — its `DELETE` semantics differ from `NsWriteClient`'s.
  */
 /**
  * Reject a `server` that isn't a bare host or `host:port`. A caller that derives `server` from
