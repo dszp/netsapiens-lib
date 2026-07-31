@@ -498,7 +498,7 @@ export function planSubscriptions(
   const isOurs = (s: Subscription) => typeof s.postUrl === 'string' && s.postUrl.startsWith(opts.ownedPrefix);
   const ours = actual.filter(isOurs);
   const foreign = actual.filter((s) => !isOurs(s));
-  const key = (domain: string, model: string) => `${domain.toLowerCase()} ${model}`;
+  const key = (domain: string, model: string) => `${domain.toLowerCase()}\u0000${model}`;
 
   const actions: SubscriptionAction[] = [];
   const claimed = new Set<string>();
