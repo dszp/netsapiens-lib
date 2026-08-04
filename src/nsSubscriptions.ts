@@ -3,10 +3,12 @@
  * pure reconciliation planner.
  *
  * This is its own class on purpose. `NsClient` is read-only by charter (a consumer holds one precisely to
- * know it cannot write), and `NsWriteClient` is unsuitable here for two concrete reasons: it injects
- * `synchronous: 'yes'` into every POST/PUT, and its `delete()` sends no body — while
- * `DELETE /subscriptions/{id}` *requires* a body (`subscription_id`, plus `domain` for scopes below Super
- * User). Node-free (fetch/URL/crypto only), so it runs unchanged in a Cloudflare Worker.
+ * know it cannot write), and `NsWriteClient`'s `delete()` sends no body — while
+ * `DELETE /subscriptions/{id}` *requires* one (`subscription_id`, plus `domain` for scopes below Super
+ * User). (A second reason applied until 0.1.7: `NsWriteClient` injected `synchronous: 'yes'` into *every*
+ * POST/PUT, which no `/subscriptions` operation accepts. It now injects only where the API declares
+ * support, so that objection is gone — the `delete()` body is what still makes the split necessary.)
+ * Node-free (fetch/URL/crypto only), so it runs unchanged in a Cloudflare Worker.
  *
  * An event subscription tells NetSapiens to POST change events to a URL you own. Notable API properties
  * that shape this module:

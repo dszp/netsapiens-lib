@@ -8,13 +8,17 @@
  * generic post/put/delete core, and is meant to GROW into the full NS write surface (users, DIDs, …) —
  * porting the endpoint/body shapes from the onboarding tool's resource defs as they're needed.
  *
- * Like the onboarding client, POST/PUT inject `synchronous: 'yes'` so a create returns 200 + the created
- * resource inline (with server-generated fields — e.g. a device's `device-sip-registration-password`)
- * instead of a 202 with replication lag. Shares the read client's SSRF guard and `NsApiError`.
+ * POST/PUT inject `synchronous: 'yes'` **only on the operations that accept it** (see
+ * {@link supportsSynchronous}), where it makes the API return 200 + the resulting resource inline —
+ * with server-generated fields such as a device's `device-sip-registration-password` — instead of a
+ * bare 202 acknowledgement. Everywhere else the flag is omitted, because sending it there is inert:
+ * NetSapiens ignores it and still answers 202, which previously made this client look as though all
+ * of its writes were confirmed when most were not. Shares the read client's SSRF guard and `NsApiError`.
  */
 import type { Rec } from './model.js';
 import { NsApiError, assertBareServer, asArray } from './nsClient.js';
 import { ensureNsDevice, type EnsureNsDeviceOptions, type EnsureNsDeviceResult } from './nsDevice.js';
+import { supportsSynchronous } from './nsSynchronous.js';
 
 export interface NsWriteClientConfig {
   /** API host, e.g. "api.example.com". Base URL becomes https://{server}/ns-api/v2. */
@@ -42,13 +46,25 @@ export class NsWriteClient {
   get<T = unknown>(path: string, query?: Record<string, string | number>): Promise<T> {
     return this.#request<T>('GET', path, undefined, query);
   }
-  /** POST with `synchronous:'yes'` injected → 200 + created resource inline. */
+  /**
+   * POST. On an operation that accepts it, `synchronous:'yes'` is injected → 200 + the created
+   * resource inline; otherwise the flag is omitted and the API answers 202 Accepted.
+   */
   post<T = unknown>(path: string, body: Rec): Promise<T> {
-    return this.#request<T>('POST', path, { synchronous: 'yes', ...body });
+    return this.#request<T>('POST', path, this.#withSynchronous('POST', path, body));
   }
-  /** PUT with `synchronous:'yes'` injected. */
+  /**
+   * PUT. Same rule as {@link post} — and note most updates do NOT accept the flag, so their
+   * response is a 202 acknowledgement with no resource body. Confirm those by reading back.
+   */
   put<T = unknown>(path: string, body: Rec): Promise<T> {
-    return this.#request<T>('PUT', path, { synchronous: 'yes', ...body });
+    return this.#request<T>('PUT', path, this.#withSynchronous('PUT', path, body));
+  }
+
+  /** Add `synchronous:'yes'` only where the API declares support. An explicit caller value wins. */
+  #withSynchronous(method: string, path: string, body: Rec): Rec {
+    if (!supportsSynchronous(method, path)) return body;
+    return { synchronous: 'yes', ...body };
   }
   delete<T = unknown>(path: string): Promise<T> {
     return this.#request<T>('DELETE', path);
@@ -73,6 +89,10 @@ export class NsWriteClient {
   }
   /**
    * Update a device in place.
+   *
+   * `PUT .../devices/{device}` does **not** accept `synchronous`, so this returns a 202
+   * acknowledgement, not the updated device. Callers must not depend on the response echoing their
+   * change back — {@link ensureNsDevice} falls back to the value it just sent for exactly this reason.
    *
    * The reason this exists rather than callers using `put()`: rotating
    * `device-sip-registration-password` must **not** be done by deleting and recreating the device, which

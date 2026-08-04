@@ -72,6 +72,32 @@ than by convention. Writes live in a **separate** class — `NsWriteClient`, a s
 surface (device provisioning) — never as new methods on `NsClient`. So a consumer that holds the read
 client still cannot write; that guarantee holds by construction, not by convention.
 
+### Which writes actually confirm: `synchronous`
+
+`synchronous: 'yes'` asks the API to finish the write before replying, so you get **200 with the
+resulting resource inline** — including server-generated fields you could not otherwise learn without a
+second read, a new device's SIP registration password being the worked example. Without it you get
+**202 Accepted** and a bare `{code, message}`.
+
+It is a **per-operation capability, not a global one**: exactly 17 operations declare it in the v2
+specification (core 44.4.10), and almost all of them are creates. Sending it anywhere else is inert —
+NetSapiens ignores unrecognized body fields and still answers 202 — so code that adds it everywhere
+merely *looks* as though its writes are confirmed.
+
+`NsWriteClient` therefore injects the flag only where it is accepted, and exports the table so other
+NetSapiens clients can share one answer instead of each keeping a copy that drifts:
+
+```ts
+import { supportsSynchronous, SYNCHRONOUS_OPERATIONS } from '@dszp/netsapiens-lib';
+
+supportsSynchronous('POST', '/domains/acme.example/users');     // true  — user CREATE
+supportsSynchronous('PUT',  '/domains/acme.example/users/100'); // false — user UPDATE
+```
+
+`path` is the concrete request path relative to `/ns-api/v2`, dynamic segments already URI-encoded.
+The most consequential absence is that **user update** is not on the list even though user create is:
+there is no response that can confirm a user update, so confirm it by reading the record back.
+
 ### Configuration binds to *your* deployment
 
 Two values are required and have no defaults, on purpose — a default would silently bind you to

@@ -20,13 +20,41 @@ in a browser.
 | `principal.ts` / `policy.ts` / `sensitivity.ts` | Identity normalization + a declarative allow-list policy engine. |
 | `nsClient.ts` | Read-only NS API v2 client (`NsClient`, `get()` only) + `fetchDomainSnapshot`. |
 | `nsWriteClient.ts` | The **separate** write client (`NsWriteClient`) — device provisioning; never mixed into `NsClient`, so the read client stays write-incapable. |
-| `nsSubscriptions.ts` | Event Subscriptions (`NsSubscriptionsClient`) + the pure `planSubscriptions` reconciler. A third client rather than methods on the other two: `NsClient` is read-only by charter, and `NsWriteClient` injects `synchronous:'yes'` on writes and sends no body on `DELETE` — which `DELETE /subscriptions/{id}` requires. |
+| `nsSynchronous.ts` | Which operations accept the `synchronous` body flag (`supportsSynchronous`, `SYNCHRONOUS_OPERATIONS`). Data, not behaviour, so this client and any other NetSapiens client share one answer instead of drifting. See below. |
+| `nsSubscriptions.ts` | Event Subscriptions (`NsSubscriptionsClient`) + the pure `planSubscriptions` reconciler. A third client rather than methods on the other two: `NsClient` is read-only by charter, and `NsWriteClient` sends no body on `DELETE` — which `DELETE /subscriptions/{id}` requires. |
 | `nsDevice.ts` | `ensureNsDevice` — exists-or-create, read the SIP password, optionally rotate it. A standalone function, not a client method, because it is several requests with branching (every `NsWriteClient` method is exactly one) and because consumers mock it as a plain object. Mechanism only: the device NAME, whether creation is allowed, and when rotation is appropriate are all the caller's decisions. |
 | `index.ts` | The public barrel — the surface every host imports. |
 | `*.selftest.ts` | Dev harnesses (Node, `tsx`). **Excluded from the build**, never shipped. |
 
 `renderFlowCards()` exists so a host can embed cards in its **existing** page rather than taking a
 whole HTML document.
+
+## `synchronous` is per-operation, and that is why it is a table
+
+A write acked `202 Accepted` has been *queued*, not confirmed; `synchronous: 'yes'` asks for the work
+to finish first, so the reply is `200` carrying the resulting resource — the only way to learn a
+server-generated field, such as a new device's SIP password, without a second read.
+
+Only **17 operations** declare the flag in the v2 spec (core 44.4.10), almost all creates. NetSapiens
+ignores unrecognized body fields, so sending it to the other endpoints is accepted, discarded, and
+answered `202` — indistinguishable at the call site from a confirmation that never happened. That is
+precisely the failure this module exists to prevent: `NsWriteClient` used to inject the flag on every
+POST and PUT and document a `200` it mostly did not get.
+
+Two design notes:
+
+- **Data, not a method.** A provisioning tool with its own reconcile loop reasonably keeps its own
+  NetSapiens client, and it holds exactly this question. Exporting the table lets both import one
+  answer; two clients disagreeing about which writes confirm is the drift worth engineering against.
+- **Matching is segment-wise, and unknown paths answer `false`.** Callers pass already-URI-encoded
+  paths, so a value containing a slash arrives as `%2F` and stays one segment rather than
+  masquerading as a deeper path. Answering `false` when unsure omits the flag and yields the 202 the
+  caller would have got anyway — the failure direction that cannot invent a guarantee.
+
+The absence that matters most: `PUT /domains/{domain}/users/{user}` is **not** on the list, though
+`POST /domains/{domain}/users` is. Verified live 2026-08-03 — the flag in the body, as
+`?synchronous=yes`, as `?synchronous=true`, both at once, and omitted entirely all return an identical
+202. A user update can only be confirmed by reading the record back.
 
 ## `ns_t` validation: the live call is the signature check
 

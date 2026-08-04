@@ -1,6 +1,7 @@
 /**
  * Offline test for NsWriteClient — device create/get/delete against a recording mock fetch (no live
- * creds). Asserts the exact v2 paths, methods, bodies (incl. synchronous:'yes'), auth header, URI
+ * creds). Asserts the exact v2 paths, methods, bodies (incl. where synchronous:'yes' is and is NOT
+ * injected — see nsSynchronous.ts), auth header, URI
  * encoding, the inline created-device return (with its generated SIP password), error shape, and the
  * bare-server SSRF guard. tsx src/nsWriteClient.selftest.ts
  */
@@ -75,12 +76,14 @@ const B = 'https://api.example.com/ns-api/v2';
   ok(last.method === 'PUT', 'updateDevice uses PUT');
   ok(last.url === `${B}/domains/acme.example/users/100/devices/100r`, 'updateDevice hits the specific device path');
   ok(last.body?.['device-sip-registration-password'] === 'NEWPASSWORD123456', 'updateDevice sends the rotated password');
-  ok(last.body?.synchronous === 'yes', 'updateDevice injects synchronous:yes like every other write');
+  // PUT .../devices/{device} is NOT one of the operations that accept `synchronous`, so the flag is
+  // omitted rather than sent-and-ignored. ensureNsDevice already falls back to the value it sent.
+  ok(!('synchronous' in (last.body ?? {})), 'updateDevice does NOT inject synchronous — device update does not accept it');
   ok(!('device' in (last.body ?? {})), 'updateDevice does not resend the device id in the body — it is in the path');
   {
     // The point of PUT over delete+create: nothing else on the device is touched.
     await client(200, {}).updateDevice('acme.example', '100', '100r', { 'device-sip-registration-password': 'X' });
-    const keys = Object.keys(last.body ?? {}).filter((k) => k !== 'synchronous');
+    const keys = Object.keys(last.body ?? {});
     ok(keys.length === 1 && keys[0] === 'device-sip-registration-password', 'only the named field is sent, so unrelated device settings survive');
   }
   {

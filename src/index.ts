@@ -39,6 +39,12 @@ export { resolveSvgSize, rasterizerScript } from './raster.js';
 export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';
 export {
+  supportsSynchronous,
+  SYNCHRONOUS_OPERATIONS,
+  type SynchronousMethod,
+  type SynchronousOperation,
+} from './nsSynchronous.js';
+export {
   ensureNsDevice,
   generateSipPassword,
   SIP_PW_FIELD,

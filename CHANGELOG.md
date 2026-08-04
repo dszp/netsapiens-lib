@@ -5,7 +5,34 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.6] — Unreleased
+## [0.1.7] — 2026-08-04
+
+### Changed
+
+- **`synchronous: 'yes'` is now injected only on the operations that accept it.** `NsWriteClient`
+  previously added the flag to *every* POST and PUT, and its doc comment promised "200 + the created
+  resource inline" for all of them. That promise was only ever true for a minority of endpoints:
+  `synchronous` is a **per-operation** capability, declared by exactly **17 operations** in the v2
+  spec (core 44.4.10) and almost all of them creates. Sending it elsewhere is inert — NetSapiens
+  ignores unrecognized body fields and still answers `202 Accepted` — so the code merely *looked*
+  as though its writes were confirmed.
+
+  The new `supportsSynchronous(method, path)` and the `SYNCHRONOUS_OPERATIONS` table are exported,
+  so other NetSapiens clients can share one answer instead of each keeping its own drifting copy.
+
+  **What changes in practice:** `createDevice` (`POST .../devices`) still sends the flag and still
+  returns the created device with its generated SIP password inline. `updateDevice`
+  (`PUT .../devices/{device}`) no longer sends it, because that operation never accepted it; its
+  response was already a bare 202 acknowledgement, and `ensureNsDevice` already falls back to the
+  password it just set rather than trusting an echo. No caller behaviour should change — this
+  removes a field the API was discarding.
+
+  The absence worth knowing is **`PUT /domains/{domain}/users/{user}`**: a user *update* cannot be
+  made synchronous, though a user *create* can. Verified live 2026-08-03 — the flag in the body, as
+  `?synchronous=yes`, as `?synchronous=true`, both, and omitted all return an identical 202. Confirm
+  a user update by reading the record back; there is no response that can confirm it for you.
+
+## [0.1.6] — 2026-07-27
 
 ### Added
 
