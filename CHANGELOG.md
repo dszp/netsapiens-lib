@@ -5,6 +5,30 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] — 2026-08-12
+
+### Changed
+
+- **`notUsers` now also matches the operator behind a mask.** Previously it tested only the effective
+  identity, so a denied account regained the capability simply by masquerading into another account —
+  the denial evaporated exactly when someone went looking for a way around it.
+
+  This is the one place this engine is deliberately asymmetric, and the asymmetry is the point. Every
+  positive condition sees the **effective** principal, so a grant follows the role currently being
+  performed; masquerading is full impersonation and is meant to be. A denial is not about a role. It
+  names a person, and a denial that does not survive that person impersonating someone else is not a
+  denial. So `notUsers` asks both "who is acting" and "who is behind this", and refuses if either is
+  named.
+
+  Nothing else changes: a principal with no operator is judged on its own id, as before, and denying an
+  account that is not behind any mask behaves identically.
+
+  ⚠️ This **narrows** existing policies rather than widening them, so it cannot grant anyone anything
+  they did not already have. If you deny an account that legitimately performs work while masquerading,
+  that work is now refused — which is the intended reading of a denial, but worth knowing before
+  upgrading. `notUsers` shipped one day earlier in 0.1.8; nothing should yet depend on the old
+  behaviour.
+
 ## [0.1.8] — 2026-08-11
 
 ### Added

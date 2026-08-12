@@ -37,13 +37,19 @@ export interface PolicyRule {
   /** Effective identity (`user@domain`) must be one of these. */
   users?: string[];
   /**
-   * Effective identity (`user@domain`) must NOT be one of these — a denial that ANDs with the rest of
-   * the rule, narrowing it.
+   * Accounts this rule EXCLUDES — a denial that ANDs with the rest of the rule, narrowing it.
    *
    * ⚠️ It is NOT a condition on its own. A rule carrying only `notUsers` never matches, deliberately:
    * "everybody except X" as a standalone rule would be an allow-all wearing an exception, and this
    * engine's whole shape is that a rule must say who it admits before it says who it doesn't. Pair it
    * with `scopes`/`domains`/`users` — see `hasCondition` in {@link ruleMatches}.
+   *
+   * ⚠️ **It matches the effective identity OR the operator behind a mask** — the one place this engine
+   * is deliberately asymmetric. Every positive condition sees the EFFECTIVE principal, so a grant
+   * follows the role currently being performed; masquerading is full impersonation and is meant to be.
+   * A denial is not about a role. It names a person, and a denial that evaporates the moment that
+   * person masquerades into someone else is not a denial — it is a suggestion. So this one condition
+   * asks both "who is acting" and "who is behind this", and refuses if either is named.
    */
   notUsers?: string[];
   /** Requires masking, AND the operator's `user@domain` (mask_chain) is one of these. */
@@ -96,7 +102,9 @@ export function ruleMatches(p: Principal, rule: PolicyRule): boolean {
   if (rule.scopes && !scopeInList(p.scope, rule.scopes)) return false;
   if (rule.domains && !(rule.domains.includes('*') || inList(p.domain, rule.domains))) return false;
   if (rule.users && !inList(p.id, rule.users)) return false;
-  if (rule.notUsers && inList(p.id, rule.notUsers)) return false;
+  // Both identities, unlike every positive condition above — see the field's own note. A grant follows
+  // the role being performed; a denial follows the person performing it, through a mask.
+  if (rule.notUsers && (inList(p.id, rule.notUsers) || (p.operator && inList(p.operator.id, rule.notUsers)))) return false;
   if (rule.operators) {
     if (!p.operator || !inList(p.operator.id, rule.operators)) return false;
   }

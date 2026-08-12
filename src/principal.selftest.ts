@@ -84,6 +84,20 @@ check('a negation-only rule never matches (no allow-all-but)',
 // "deny this account" intent into a policy must therefore put the negation on EVERY rule it emits;
 // leaving one rule bare re-admits the account through it. Asserted here so the property is pinned at
 // the engine rather than only in whichever consumer got the distribution right.
+// The one asymmetry in this engine: a grant follows the role being performed, a denial follows the
+// person. `masked` is 100@acme with operator@0000.12345.service behind the mask.
+check('notUsers denies the OPERATOR behind a mask, not only the account being acted as',
+  isAllowed(masked, [{ scopes: ['Office Manager'] }]) &&
+  !isAllowed(masked, [{ scopes: ['Office Manager'], notUsers: ['operator@0000.12345.service'] }]));
+check('notUsers still denies the effective identity while masked',
+  !isAllowed(masked, [{ scopes: ['Office Manager'], notUsers: ['100@acme'] }]));
+check('a mask by someone NOT denied is unaffected',
+  isAllowed(masked, [{ scopes: ['Office Manager'], notUsers: ['someoneelse@0000.12345.service'] }]));
+// Denying the operator must not leak into the unmasked case: `self` IS operator@… acting as themselves,
+// with no mask, so the deny bites through p.id — but a principal with no operator must never throw or
+// match on a missing field.
+check('an unmasked principal with no operator is judged on its own id alone',
+  isAllowed({ ...self, id: 'other@0000.12345.service' }, [{ scopes: ['Reseller'], notUsers: ['operator@0000.12345.service'] }]));
 check('notUsers is per-rule: a bare sibling rule still admits the denied account',
   isAllowed(self, [
     { scopes: ['Reseller'], notUsers: ['admin@0000.12345.service'] },
