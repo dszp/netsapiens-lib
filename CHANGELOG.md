@@ -5,6 +5,34 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] — 2026-08-11
+
+### Added
+
+- **`PolicyRule.notUsers` — the engine's one negative condition.** A rule may now name accounts it
+  excludes: `{ scopes: ['Reseller'], notUsers: ['105@acme.example'] }` admits every reseller except that
+  account. It ANDs with the rest of the rule, like every other condition, so it narrows the rule it sits
+  on.
+
+  It exists because the positive form cannot express "everyone at this scope except these accounts"
+  without enumerating the complement — the list of accounts that *keep* the capability — which is wrong
+  the moment an account is created, and wrong silently. Naming the exception stays correct as accounts
+  come and go, because the scope side is evaluated from each caller's own token rather than from a list
+  anyone maintains.
+
+  Two properties worth knowing before you use it:
+
+  - **It does not count as a condition of its own.** A rule carrying only `notUsers` never matches.
+    "Everybody except X" as a standalone rule would be an allow-all wearing an exception, and this
+    engine's shape is that a rule says who it admits before it says who it does not. Pair it with
+    `scopes`, `domains` or `users`.
+  - **It is per-rule, not per-policy.** Rules are OR'd, so a policy compiled from a "deny this account"
+    intent must carry the negation on *every* rule it emits; one bare rule re-admits the account through
+    it. The selftest pins this so a consumer distributing a denial can rely on the semantics rather than
+    rediscovering them.
+
+  Additive and optional — existing policies are unaffected.
+
 ## [0.1.7] — 2026-08-04
 
 ### Changed
