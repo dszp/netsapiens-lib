@@ -68,6 +68,28 @@ check('ANY-rule semantics (union of two rules)',
 check('empty policy denies', !isAllowed(self, []));
 check('conditionless rule does NOT match (no accidental allow-all)', !isAllowed(self, [{}]) && !isAllowed(self, [{ description: 'todo' }]));
 
+// ---- notUsers: the one negative condition ----
+const otherReseller = { ...self, id: 'other@0000.12345.service' };
+check('notUsers denies a principal the positive fields admit',
+  isAllowed(self, [{ scopes: ['Reseller'] }]) &&
+  !isAllowed(self, [{ scopes: ['Reseller'], notUsers: ['admin@0000.12345.service'] }]));
+check('notUsers leaves everyone else at that scope alone',
+  isAllowed(otherReseller, [{ scopes: ['Reseller'], notUsers: ['admin@0000.12345.service'] }]));
+check('notUsers is case-insensitive, like every other list',
+  !isAllowed(self, [{ scopes: ['Reseller'], notUsers: ['ADMIN@0000.12345.SERVICE'] }]));
+check('a negation-only rule never matches (no allow-all-but)',
+  !isAllowed(self, [{ notUsers: ['nobody@example.com'] }]) &&
+  !isAllowed(masked, [{ notUsers: ['nobody@example.com'] }]));
+// The deny narrows THE RULE IT SITS ON, not the policy — rules still OR. A caller that compiles a
+// "deny this account" intent into a policy must therefore put the negation on EVERY rule it emits;
+// leaving one rule bare re-admits the account through it. Asserted here so the property is pinned at
+// the engine rather than only in whichever consumer got the distribution right.
+check('notUsers is per-rule: a bare sibling rule still admits the denied account',
+  isAllowed(self, [
+    { scopes: ['Reseller'], notUsers: ['admin@0000.12345.service'] },
+    { users: ['admin@0000.12345.service'] },
+  ]));
+
 // ---- feature registry (fail-closed) ----
 const FEATURES: FeaturePolicies = {
   'callflow.view': [{ scopes: ['Reseller'] }, { operators: ['operator@0000.12345.service'] }], // resellers, or my masked previews
