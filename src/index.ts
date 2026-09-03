@@ -37,6 +37,7 @@ export {
 } from './html.js';
 export { resolveSvgSize, rasterizerScript } from './raster.js';
 export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
+export { countDomainInventory, type DomainInventory } from './inventory.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';
 export {
   supportsSynchronous,
