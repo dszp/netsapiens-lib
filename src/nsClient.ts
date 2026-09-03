@@ -164,6 +164,25 @@ export interface FetchSnapshotOptions {
    * reads) so `listEntities()` can flag time-of-day (TOD) DIDs. Default false.
    */
   includeDidDestRules?: boolean;
+  /**
+   * Also read the domain's E911 addresses into `snapshot.addresses`. One extra call. Default false —
+   * the resolver does not use them; an inventory count does.
+   */
+  includeAddresses?: boolean;
+  /**
+   * Also read the domain's SMS-enabled numbers into `snapshot.smsnumbers`. One extra call. Default false.
+   *
+   * Sent as `?dest=*`. The endpoint is documented as taking no parameters and a live server rejects it
+   * that way, demanding `dest` or `number`; the wildcard is what answers with the list.
+   */
+  includeSmsNumbers?: boolean;
+  /**
+   * Also read each REAL extension's devices into `devicesByUser`. Costs one call per extension —
+   * NetSapiens exposes devices only per user — so it is off by default and belongs to inventory
+   * callers, not routing ones. Users whose `service-code` starts with `system-` are skipped: they are
+   * auto attendants and queues, and they hold no seat.
+   */
+  includeDevices?: boolean;
 }
 
 /**
@@ -187,15 +206,20 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
   };
 
   const domainRec = asArray(await client.get(base))[0] ?? { domain };
-  const [timeframes, users, callqueues, phonenumbers, autoattendants] = await Promise.all([
+  const [timeframes, users, callqueues, phonenumbers, autoattendants, addresses, smsnumbers] = await Promise.all([
     soft(`${base}/timeframes`),
     soft(`${base}/users`),
     soft(`${base}/callqueues`),
     soft(`${base}/phonenumbers`),
     soft(`${base}/autoattendants`),
+    opts.includeAddresses ? soft(`${base}/addresses`) : Promise.resolve(undefined),
+    // `dest=*`: see includeSmsNumbers. A 404 is already softened to []; a 400 from a server that wants
+    // a different parameter throws, which is right — a silent empty list would read as "no SMS numbers".
+    opts.includeSmsNumbers ? soft(`${base}/smsnumbers?dest=*`) : Promise.resolve(undefined),
   ]);
 
-  // Shallow mode stops here — enough for listEntities() (the picker).
+  // Shallow mode stops here — enough for listEntities() (the picker). `includeDevices` is ignored in
+  // shallow mode: shallow's whole contract is "no per-item fan-out".
   if (opts.shallow) {
     let answerrulesByUser: Record<string, Rec[]> | undefined;
     if (opts.includeDidDestRules) {
@@ -206,7 +230,26 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
         if (rules.length) answerrulesByUser![u] = rules;
       });
     }
-    return { meta: { domain }, domain: domainRec, timeframes, users, callqueues, phonenumbers, autoattendants, ...(answerrulesByUser ? { answerrulesByUser } : {}) };
+    return {
+      meta: { domain }, domain: domainRec, timeframes, users, callqueues, phonenumbers, autoattendants,
+      ...(answerrulesByUser ? { answerrulesByUser } : {}),
+      ...(addresses ? { addresses } : {}),
+      ...(smsnumbers ? { smsnumbers } : {}),
+    };
+  }
+
+  // Devices, per REAL extension. One call each — there is no domain-level device list — so this is the
+  // expensive half of an inventory read and is opt-in for that reason.
+  let devicesByUser: Record<string, Rec[]> | undefined;
+  if (opts.includeDevices) {
+    devicesByUser = {};
+    const seats = users.filter((u) => !String(u['service-code'] ?? '').trim().toLowerCase().startsWith('system-'));
+    await mapLimit(seats, conc, async (u) => {
+      const ext = String(u.user ?? '');
+      if (!ext) return;
+      const devs = await soft(`${base}/users/${enc(ext)}/devices`).catch(() => []);
+      if (devs.length) devicesByUser![ext] = devs;
+    });
   }
 
   const answerrulesByUser: Record<string, Rec[]> = {};
@@ -261,6 +304,9 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     autoattendants,
     answerrulesByUser,
     agentsByQueue,
+    ...(addresses ? { addresses } : {}),
+    ...(smsnumbers ? { smsnumbers } : {}),
+    ...(devicesByUser ? { devicesByUser } : {}),
     ...(attendantDetailsByUser && Object.keys(attendantDetailsByUser).length ? { attendantDetailsByUser } : {}),
     ...(attendantDialrulesByExt && Object.keys(attendantDialrulesByExt).length ? { attendantDialrulesByExt } : {}),
     ...(dialrulesByPlan ? { dialrulesByPlan } : {}),

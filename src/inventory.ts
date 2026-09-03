@@ -52,7 +52,7 @@ export interface DomainInventory {
   devices: { total: number; byModel: Record<string, number> };
 }
 
-/** NANP toll-free area codes, current through 833. A number outside this set is counted local. */
+/** NANP toll-free area codes, 800 through 888. A number outside this set is counted local. */
 const TOLL_FREE = new Set(['800', '833', '844', '855', '866', '877', '888']);
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
@@ -77,8 +77,8 @@ export function countDomainInventory(snapshot: Snapshot): DomainInventory {
   const users: Rec[] = Array.isArray(snapshot.users) ? snapshot.users : [];
   const devicesByUser: Record<string, Rec[]> = (snapshot.devicesByUser ?? {}) as Record<string, Rec[]>;
   const phonenumbers: Rec[] = Array.isArray(snapshot.phonenumbers) ? snapshot.phonenumbers : [];
-  const addresses: Rec[] = Array.isArray((snapshot as Rec).addresses) ? ((snapshot as Rec).addresses as Rec[]) : [];
-  const smsnumbers: Rec[] = Array.isArray((snapshot as Rec).smsnumbers) ? ((snapshot as Rec).smsnumbers as Rec[]) : [];
+  const addresses: Rec[] = Array.isArray(snapshot.addresses) ? snapshot.addresses : [];
+  const smsnumbers: Rec[] = Array.isArray(snapshot.smsnumbers) ? snapshot.smsnumbers : [];
 
   const inv: DomainInventory = {
     extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 } },

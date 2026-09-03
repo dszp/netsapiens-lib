@@ -84,6 +84,17 @@ export interface Snapshot {
   callqueues?: Rec[];
   agentsByQueue?: Record<string, Rec[]>;
   phonenumbers?: Rec[];
+  /**
+   * E911 address records — GET /domains/{d}/addresses. Present only when the fetch asked for them;
+   * `undefined` means "not read", which is not the same fact as an empty array.
+   */
+  addresses?: Rec[];
+  /**
+   * SMS-enabled numbers — GET /domains/{d}/smsnumbers?dest=*. The endpoint is documented with no
+   * parameters, but a live server answers 400 without `dest` or `number`; `dest=*` is the wildcard
+   * that returns the list. Present only when the fetch asked for them.
+   */
+  smsnumbers?: Rec[];
   autoattendants?: Rec[];
   dialrulesByPlan?: Record<string, Rec[]>;
   answerrulesByUser?: Record<string, Rec[]>;

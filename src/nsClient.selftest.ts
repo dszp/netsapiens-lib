@@ -12,21 +12,22 @@ import { NsClient, fetchDomainSnapshot } from './nsClient.js';
 import { resolveFlow, listEntities } from './resolver.js';
 import type { Snapshot } from './model.js';
 
+// The fixture-diff test below (fetchDomainSnapshot vs a raw fixture, resolved both ways) needs a
+// snapshot file and is skipped without one. The fake-client test further down needs nothing but
+// the client, so it always runs — `pnpm exec tsx src/nsClient.selftest.ts` with no args exercises it.
 const snapPath = process.argv[2];
-if (!snapPath) {
-  console.error('usage: tsx src/nsClient.selftest.ts <snapshot.json> [attendantsDir]');
-  process.exit(2);
-}
-const raw = JSON.parse(readFileSync(snapPath, 'utf8')) as Snapshot;
-const domain = String(raw.meta?.domain ?? raw.domain?.domain ?? '');
+const raw = snapPath ? (JSON.parse(readFileSync(snapPath, 'utf8')) as Snapshot) : undefined;
+const domain = String(raw?.meta?.domain ?? raw?.domain?.domain ?? '');
 
 // Optional AA menu sidecars keyed by ext.
-const attendantsDir = process.argv[3] ?? join(resolve(snapPath, '..'), 'attendants');
+const attendantsDir = snapPath ? (process.argv[3] ?? join(resolve(snapPath, '..'), 'attendants')) : undefined;
 const aaByExt: Record<string, unknown> = {};
 try {
-  for (const f of readdirSync(attendantsDir).filter((f) => f.endsWith('.json'))) {
-    const d = JSON.parse(readFileSync(join(attendantsDir, f), 'utf8'));
-    aaByExt[String(d.user ?? f.replace(/\.json$/, ''))] = d;
+  if (attendantsDir) {
+    for (const f of readdirSync(attendantsDir).filter((f) => f.endsWith('.json'))) {
+      const d = JSON.parse(readFileSync(join(attendantsDir, f), 'utf8'));
+      aaByExt[String(d.user ?? f.replace(/\.json$/, ''))] = d;
+    }
   }
 } catch {
   /* no sidecars */
@@ -38,22 +39,22 @@ const notFound = () => new Response('[]', { status: 404 });
 const mockFetch = (async (input: string) => {
   const path = new URL(String(input)).pathname.replace(/^\/ns-api\/v2/, '');
   const b = `/domains/${domain}`;
-  if (path === b) return j(raw.domain ?? { domain });
-  if (path === `${b}/timeframes`) return j(raw.timeframes ?? []);
-  if (path === `${b}/users`) return j(raw.users ?? []);
-  if (path === `${b}/callqueues`) return j(raw.callqueues ?? []);
-  if (path === `${b}/phonenumbers`) return j(raw.phonenumbers ?? []);
-  if (path === `${b}/autoattendants`) return j(raw.autoattendants ?? []);
+  if (path === b) return j(raw?.domain ?? { domain });
+  if (path === `${b}/timeframes`) return j(raw?.timeframes ?? []);
+  if (path === `${b}/users`) return j(raw?.users ?? []);
+  if (path === `${b}/callqueues`) return j(raw?.callqueues ?? []);
+  if (path === `${b}/phonenumbers`) return j(raw?.phonenumbers ?? []);
+  if (path === `${b}/autoattendants`) return j(raw?.autoattendants ?? []);
   let m = path.match(new RegExp(`^${b}/users/([^/]+)/answerrules$`));
-  if (m) return j(raw.answerrulesByUser?.[decodeURIComponent(m[1]!)] ?? []);
+  if (m) return j(raw?.answerrulesByUser?.[decodeURIComponent(m[1]!)] ?? []);
   m = path.match(new RegExp(`^${b}/callqueues/([^/]+)/agents$`));
-  if (m) return j(raw.agentsByQueue?.[decodeURIComponent(m[1]!)] ?? []);
+  if (m) return j(raw?.agentsByQueue?.[decodeURIComponent(m[1]!)] ?? []);
   m = path.match(new RegExp(`^${b}/users/([^/]+)/autoattendants/([^/]+)$`));
   if (m) {
     const detail = aaByExt[decodeURIComponent(m[1]!)];
     return detail ? j(detail) : notFound();
   }
-  if (path === `${b}/dialplans/${domain}/dialrules`) return j(raw.dialrulesByPlan?.[domain] ?? []);
+  if (path === `${b}/dialplans/${domain}/dialrules`) return j(raw?.dialrulesByPlan?.[domain] ?? []);
   return notFound();
 }) as unknown as typeof fetch;
 
@@ -65,31 +66,68 @@ const ok = (c: boolean, msg: string) => {
 };
 
 (async () => {
-  const client = new NsClient({ server: 'mock.local', token: 'x', fetchImpl: mockFetch });
-  const rebuilt = await fetchDomainSnapshot(client, domain, { includeDialrules: true });
+  if (raw) {
+    const client = new NsClient({ server: 'mock.local', token: 'x', fetchImpl: mockFetch });
+    const rebuilt = await fetchDomainSnapshot(client, domain, { includeDialrules: true });
 
-  // Feed the raw fixture its sidecar AA details too, so both sides render menus identically.
-  const rawWithAa: Snapshot = { ...raw, attendantDetails: aaByExt as Record<string, any> };
+    // Feed the raw fixture its sidecar AA details too, so both sides render menus identically.
+    const rawWithAa: Snapshot = { ...raw, attendantDetails: aaByExt as Record<string, any> };
 
-  const ents = listEntities(rebuilt);
-  const cases = [
-    ...ents.dids.map((d) => ({ kind: 'did' as const, ref: d.ref })),
-    ...ents.queues.map((q) => ({ kind: 'queue' as const, ref: q.ref })),
-    ...ents.attendants.map((a) => ({ kind: 'attendant' as const, ref: a.ref })),
-    ...ents.users.map((u) => ({ kind: 'user' as const, ref: u.ref })),
-  ];
-  ok(cases.length > 0, `enumerated ${cases.length} entities from the rebuilt snapshot`);
+    const ents = listEntities(rebuilt);
+    const cases = [
+      ...ents.dids.map((d) => ({ kind: 'did' as const, ref: d.ref })),
+      ...ents.queues.map((q) => ({ kind: 'queue' as const, ref: q.ref })),
+      ...ents.attendants.map((a) => ({ kind: 'attendant' as const, ref: a.ref })),
+      ...ents.users.map((u) => ({ kind: 'user' as const, ref: u.ref })),
+    ];
+    ok(cases.length > 0, `enumerated ${cases.length} entities from the rebuilt snapshot`);
 
-  let mismatches = 0;
-  for (const c of cases) {
-    const a = JSON.stringify(resolveFlow(rawWithAa, c));
-    const b = JSON.stringify(resolveFlow(rebuilt, c));
-    if (a !== b) {
-      mismatches++;
-      console.log(`   ✗ graph differs for ${c.kind} ${c.ref}`);
+    let mismatches = 0;
+    for (const c of cases) {
+      const a = JSON.stringify(resolveFlow(rawWithAa, c));
+      const b = JSON.stringify(resolveFlow(rebuilt, c));
+      if (a !== b) {
+        mismatches++;
+        console.log(`   ✗ graph differs for ${c.kind} ${c.ref}`);
+      }
     }
+    ok(mismatches === 0, `all ${cases.length} flows identical: rebuilt-from-API vs raw fixture`);
+  } else {
+    console.log('(no fixture given — skipping the rebuilt-vs-raw comparison; usage: tsx src/nsClient.selftest.ts <snapshot.json> [attendantsDir])');
   }
-  ok(mismatches === 0, `all ${cases.length} flows identical: rebuilt-from-API vs raw fixture`);
+
+  // -- the optional inventory reads ----------------------------------------------------------------
+  {
+    const seen: string[] = [];
+    const fake = {
+      get: async (p: string) => {
+        seen.push(p);
+        if (/\/users$/.test(p)) return [
+          { user: '100', 'service-code': '' },
+          { user: '700', 'service-code': 'system-aa' },
+        ];
+        if (/\/users\/100\/devices$/.test(p)) return [{ aor: 'sip:100@acme.example', 'device-models-model': 'Yealink T54W' }];
+        if (/\/addresses$/.test(p)) return [{ 'address-id': '1' }];
+        if (/\/smsnumbers/.test(p)) return [{ number: '13175550100' }];
+        return [];
+      },
+    } as unknown as NsClient;
+
+    const snap = await fetchDomainSnapshot(fake, 'acme.example', {
+      includeAttendantMenus: false, includeAddresses: true, includeSmsNumbers: true, includeDevices: true,
+    });
+
+    ok(Array.isArray(snap.addresses) && snap.addresses.length === 1, 'addresses are read into the snapshot');
+    ok(Array.isArray(snap.smsnumbers) && snap.smsnumbers.length === 1, 'SMS numbers are read into the snapshot');
+    ok(seen.some((p) => p === '/domains/acme.example/smsnumbers?dest=*'), 'the SMS read carries dest=* - the live server refuses the documented no-parameter call');
+    ok(snap.devicesByUser?.['100']?.length === 1, 'a real extension devices are read');
+    ok(snap.devicesByUser?.['700'] === undefined, 'a system user costs no device call');
+    ok(!seen.some((p) => /\/users\/700\/devices$/.test(p)), 'and none was made');
+
+    const off = await fetchDomainSnapshot(fake, 'acme.example', { includeAttendantMenus: false });
+    ok(off.addresses === undefined && off.smsnumbers === undefined && off.devicesByUser === undefined,
+      'all three reads are opt-in - a caller that wants routing pays for none of them');
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

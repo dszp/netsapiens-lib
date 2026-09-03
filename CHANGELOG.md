@@ -5,6 +5,28 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-09-03
+
+### Added
+
+- **`countDomainInventory(snapshot)`** — counts a domain along the dimensions an operator sells on:
+  extensions (by scope, by service code, by device count), system users, transcription-enabled seats,
+  phone numbers split local/toll-free, E911 addresses, SMS numbers, and devices by model. Pure: it
+  reads a `Snapshot` and fetches nothing.
+
+  It returns **counts and model names only, never device records** — a NetSapiens device record carries
+  the SIP registration password, and an inventory view is exactly the kind of screen that would leak one.
+
+- **Three optional reads on `fetchDomainSnapshot`**: `includeAddresses`, `includeSmsNumbers` and
+  `includeDevices`, filling `snapshot.addresses`, `snapshot.smsnumbers` and `snapshot.devicesByUser`.
+  All three default to false, so a routing caller pays nothing for them.
+
+  `includeSmsNumbers` sends `?dest=*`. The endpoint is documented as taking no parameters, and a live
+  server answers 400 without `dest` or `number`.
+
+  `includeDevices` costs one call per real extension — NetSapiens has no domain-level device list —
+  and skips `system-*` users, which hold no seat.
+
 ## [0.1.9] — 2026-08-12
 
 ### Changed
