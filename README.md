@@ -61,7 +61,46 @@ Two composites are provided because they're multi-read and worth getting right o
 | `listDomains(client)` | `/domains` → `{domain, description, locked}[]` |
 | `fetchDomainSnapshot(client, domain, opts?)` | `/domains/{d}` plus, in parallel, `timeframes`, `users`, `callqueues`, `phonenumbers`, `autoattendants` — then per-user `answerrules`. Individual reads fail **soft** (a missing collection yields `[]`, not a thrown snapshot). |
 
-The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export.
+The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export. Three
+options pull in more, each off by default because each costs an extra read: `includeAddresses` (E911
+address records), `includeSmsNumbers` (SMS-enabled numbers), and `includeDevices` (per-extension device
+records — one `/devices` read per real extension, so it is the expensive one on a domain with many seats).
+All three exist for `countDomainInventory()` below; a caller that only resolves call flows never needs them.
+
+### Counting a domain: `countDomainInventory`
+
+`countDomainInventory(snapshot)` is pure — it fetches nothing, and turns a `Snapshot` (from
+`fetchDomainSnapshot`, a backup, or a fixture) into a fixed tree of numeric leaves along the dimensions a
+VoIP operator actually sells on:
+
+- `extensions` — real seats (users whose `service-code` is empty or not `system-*`), by `total`, by
+  `byScope` (raw `user-scope`), by `byServiceCode`, and by `byDeviceCount` (`'0' | '1' | '2' | '3+'`).
+- `systemUsers` — `system-aa`, `system-queue`, `system-tod` and friends: `total` and `byServiceCode`.
+  Informational, never compared against a seat count.
+- `transcriptionEnabled` — extensions with voicemail transcription on.
+- `dids` — phone numbers, `total` / `tollFree` / `local`.
+- `e911Addresses`, `smsNumbers` — record counts.
+- `devices` — `total` and `byModel`, real extensions only (a system user's device is not a seat).
+
+Every leaf is a number, on purpose: a caller reconciling this against a billing system addresses a
+dimension by dotted path (`extensions.total`, `dids.tollFree`) without this module knowing anything
+about the billing side. It also **never returns a device record** — a NetSapiens device carries the SIP
+registration password, so returning totals and model names only means a consumer showing inventory to
+an operator cannot accidentally show a credential.
+
+For a complete count, fetch the snapshot with all three extra options — `dids`, `e911Addresses`,
+`smsNumbers` and `devices` all read as zero against a snapshot that omitted them:
+
+```ts
+import { fetchDomainSnapshot, countDomainInventory } from '@dszp/netsapiens-lib';
+
+const snapshot = await fetchDomainSnapshot(client, 'acme.example', {
+  includeAddresses: true, includeSmsNumbers: true, includeDevices: true,
+});
+const inventory = countDomainInventory(snapshot);
+inventory.dids.tollFree;      // e.g. 3
+inventory.devices.byModel;    // e.g. { "Yealink T54W": 12, "(unknown)": 1 }
+```
 
 ### Read/write split by charter
 
