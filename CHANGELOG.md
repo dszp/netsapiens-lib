@@ -12,7 +12,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `NumberItem.destination`: where a phone number routes, in words (`to user 100 — Ann Lee`, `to queue 701 — Sales`), built by the new exported `destinationOf(p, userByExt)`.
 - `NumberItem.description`: `dial-rule-description` trimmed — the note the portal writes (e.g. `Portal Created: User - 1001`).
 - `usersByExt(users)`: one record per non-blank `user`, first one wins — extracted out of `attribution.ts` so there is one copy of that lookup in the library.
-- `ExtensionItem.deviceNames`: the `aor` local part of every device on the extension, handset and Teams connector alike (`101b`, `103t`), in record order — the device NAME as the portal shows it, still never the MAC, SIP password or email.
+- `ExtensionItem.devices`: every device on the extension, in record order, connector included — `{ name, model, teams }`, `name` being the `aor` local part the portal shows (`101b`, `103t`), `model` `''` for the Teams connector, and `teams` marking that connector row. `deviceCount`/`deviceModels`/`teams` stay handset-only. Still never the MAC, SIP password or email.
 
 ## [0.4.0] — 2026-09-05
 

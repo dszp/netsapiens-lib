@@ -94,12 +94,22 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(e100.deviceCount === 1 && e100.deviceModels[0] === 'Yealink T54W', '[list] device count and models, never the MAC');
   ok(e100.teams === false, '[list] a desk phone is not Teams');
   const e101 = d.extensions.find((x) => x.ext === '101')!;
-  ok(e101.deviceNames.join(',') === '101a,101b,101c', '[list] deviceNames lists every aor local part, in order');
+  ok(
+    JSON.stringify(e101.devices) === JSON.stringify([
+      { name: '101a', model: 'Yealink T54W', teams: false },
+      { name: '101b', model: 'Yealink T31P', teams: false },
+      { name: '101c', model: '(unknown)', teams: false },
+    ]),
+    '[list] devices lists every device with its name, model and teams flag, in order',
+  );
   const e103 = d.extensions.find((x) => x.ext === '103')!;
   ok(e103.teams === true, '[list] a device whose aor local part is <ext>t marks the extension Teams-connected');
   ok(e103.deviceCount === 0 && e103.deviceModels.length === 0, '[list] and that connector is not counted as a device');
-  ok(e103.deviceNames.join(',') === '103t', '[list] deviceNames includes the Teams connector even though deviceCount excludes it');
-  ok(d.extensions.find((x) => x.ext === '104')!.deviceNames.length === 0, '[list] no devices means an empty deviceNames, not a throw');
+  ok(
+    JSON.stringify(e103.devices) === JSON.stringify([{ name: '103t', model: '', teams: true }]),
+    '[list] devices includes the Teams connector with an empty model, even though deviceCount excludes it',
+  );
+  ok(d.extensions.find((x) => x.ext === '104')!.devices.length === 0, '[list] no devices means an empty devices list, not a throw');
   ok(d.extensions.find((x) => x.ext === '101')!.transcription === true, '[list] transcription flag');
   ok(d.extensions.find((x) => x.ext === '103')!.name === '', '[list] a user with no name has an empty name, not "undefined undefined"');
   ok(d.extensions.find((x) => x.ext === '103')!.anyDevice === true, '[list] an extension with only the Teams connector still has a device');

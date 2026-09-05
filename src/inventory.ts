@@ -91,11 +91,14 @@ export interface ExtensionItem {
   /** `device-models-model` per handset, `(unknown)` when blank. Never the MAC. */
   deviceModels: string[];
   /**
-   * The `aor` local part of EVERY device on this extension, handset or Teams connector alike, in the
-   * order the records came (`sip:101b@acme.example` → `101b`). This is the device NAME as the portal
-   * shows it, not a credential — the MAC and SIP password never appear here or anywhere else.
+   * Every device on this extension, in record order, connector included: `name` is the `aor` local
+   * part (`sip:101b@acme.example` → `101b`) — the device NAME as the portal shows it — `model` is
+   * `device-models-model` (`(unknown)` when blank on a handset, `''` for the Teams connector, which
+   * has no model), and `teams` marks the connector entry itself. `deviceCount`/`deviceModels`/`teams`
+   * above stay handset-only; this list is the one place a connector's own row shows up. Never the MAC
+   * or the SIP password.
    */
-  deviceNames: string[];
+  devices: Array<{ name: string; model: string; teams: boolean }>;
   /** `deviceCount > 0 || teams` — has a device of any kind, handset or connector. */
   anyDevice: boolean;
 }
@@ -203,8 +206,11 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
     // A device whose model is blank is listed under a named bucket rather than dropped: a missing
     // model is a provisioning gap worth seeing, and a silently smaller total hides it.
     deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
-    // Every device, including the Teams connector — this is a display name, not a seat count.
-    deviceNames: devices.map((d) => aorLocal(d)),
+    // Every device, including the Teams connector — this is a display list, not a seat count.
+    devices: devices.map((d) => {
+      const isTeams = ext ? aorLocal(d) === `${ext}t` : false;
+      return { name: aorLocal(d), model: isTeams ? '' : str(d['device-models-model']) || '(unknown)', teams: isTeams };
+    }),
     anyDevice: handsets.length > 0 || teams,
   };
 }
