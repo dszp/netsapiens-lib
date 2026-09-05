@@ -1,6 +1,6 @@
 /** Offline test for the domain inventory counter. pnpm test:inventory */
-import { countDomainInventory, listDomainInventory, itemsFor, itemLabel } from './inventory.js';
-import type { Snapshot } from './model.js';
+import { countDomainInventory, listDomainInventory, itemsFor, itemLabel, destinationOf, usersByExt } from './inventory.js';
+import type { Rec, Snapshot } from './model.js';
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'} ${m}`); };
@@ -14,7 +14,7 @@ const snap: Snapshot = {
     { user: '103', 'user-scope': 'Basic User', 'service-code': '' },
     { user: '104', 'user-scope': 'Basic User', 'service-code': '' },
     { user: '700', 'user-scope': 'Basic User', 'service-code': 'system-aa' },
-    { user: '701', 'user-scope': 'Basic User', 'service-code': 'system-queue' },
+    { user: '701', 'user-scope': 'Basic User', 'service-code': 'system-queue', 'name-first-name': 'Sales' },
     { user: '702', 'user-scope': 'Basic User', 'service-code': 'system-tod' },
   ],
   devicesByUser: {
@@ -28,8 +28,10 @@ const snap: Snapshot = {
     '103': [{ aor: 'sip:103t@acme.example', 'device-models-model': 'Teams' }],
   },
   phonenumbers: [
-    { phonenumber: '13175550100' }, { phonenumber: '13175550101' },
-    { phonenumber: '18005550102' }, { phonenumber: '18335550103' },
+    { phonenumber: '13175550100', 'dial-rule-translation-destination-user': '100', 'dial-rule-description': '  Portal Created: User - 1001  ' },
+    { phonenumber: '13175550101' },
+    { phonenumber: '18005550102', 'dial-rule-translation-destination-user': '701' },
+    { phonenumber: '18335550103' },
   ],
   addresses: [
     { 'emergency-address-id': 'a-1', 'address-name': 'HQ', 'address-line-1': '1 Main St', 'address-city': 'Springfield' },
@@ -91,15 +93,23 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(e100.site === 'North', '[list] site is carried');
   ok(e100.deviceCount === 1 && e100.deviceModels[0] === 'Yealink T54W', '[list] device count and models, never the MAC');
   ok(e100.teams === false, '[list] a desk phone is not Teams');
+  const e101 = d.extensions.find((x) => x.ext === '101')!;
+  ok(e101.deviceNames.join(',') === '101a,101b,101c', '[list] deviceNames lists every aor local part, in order');
   const e103 = d.extensions.find((x) => x.ext === '103')!;
   ok(e103.teams === true, '[list] a device whose aor local part is <ext>t marks the extension Teams-connected');
   ok(e103.deviceCount === 0 && e103.deviceModels.length === 0, '[list] and that connector is not counted as a device');
+  ok(e103.deviceNames.join(',') === '103t', '[list] deviceNames includes the Teams connector even though deviceCount excludes it');
+  ok(d.extensions.find((x) => x.ext === '104')!.deviceNames.length === 0, '[list] no devices means an empty deviceNames, not a throw');
   ok(d.extensions.find((x) => x.ext === '101')!.transcription === true, '[list] transcription flag');
   ok(d.extensions.find((x) => x.ext === '103')!.name === '', '[list] a user with no name has an empty name, not "undefined undefined"');
   ok(d.extensions.find((x) => x.ext === '103')!.anyDevice === true, '[list] an extension with only the Teams connector still has a device');
   ok(d.extensions.find((x) => x.ext === '104')!.anyDevice === false, '[list] and one with nothing has none');
   ok(d.dids.length === 4 && d.dids.filter((n) => n.kind === 'tollFree').length === 2, '[list] numbers with kind');
   ok(d.dids[0]!.key === 'did:13175550100', '[list] a number key is did:<phonenumber>');
+  ok(d.dids[0]!.destination === 'to user 100 — Ann Lee', '[list] a number routed to a real user names them');
+  ok(d.dids[0]!.description === 'Portal Created: User - 1001', '[list] dial-rule-description is carried and trimmed');
+  ok(d.dids[1]!.destination === '' && d.dids[1]!.description === '', '[list] a number with no routing fields is blank, not "undefined"');
+  ok(d.dids[2]!.destination === 'to queue 701 — Sales', '[list] a number routed to a system queue names the queue');
   ok(d.e911Addresses.length === 2, '[list] two address items');
   ok(d.e911Addresses[0]!.key === 'addr:a-1', '[list] an address key is addr:<emergency-address-id>');
   ok(d.e911Addresses[0]!.label === 'HQ — 1 Main St, Springfield', '[list] an address label is name — line 1, city');
@@ -207,6 +217,24 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
     d.dids.map((n) => n.key).filter((k) => k.startsWith('did:~')).sort().join(',');
   ok(derived(forward) !== '', '[order] the fixture really does produce derived keys');
   ok(derived(forward) === derived(reversed), '[order] reversing the phonenumbers array leaves the did:~ keys unchanged');
+}
+
+// ── usersByExt / destinationOf ───────────────────────────────────────────────────────────────────────
+{
+  const usersFx: Rec[] = [
+    { user: '100', 'name-first-name': 'Ann', 'name-last-name': 'Lee' },
+    { user: '701', 'service-code': 'system-queue', 'name-first-name': 'Sales' },
+  ];
+  const byExt = usersByExt(usersFx);
+  ok(byExt.size === 2, '[usersByExt] one entry per non-blank user');
+  const deduped = usersByExt([...usersFx, { user: '100', 'name-first-name': 'Duplicate' }]);
+  ok(deduped.get('100')!['name-first-name'] === 'Ann', '[usersByExt] the FIRST record for a repeated extension wins');
+
+  ok(destinationOf({ 'dial-rule-translation-destination-user': '100' }, byExt) === 'to user 100 — Ann Lee', '[destinationOf] a real extension names the person');
+  ok(destinationOf({ 'dial-rule-translation-destination-user': '701' }, byExt) === 'to queue 701 — Sales', '[destinationOf] a system-queue destination strips the system- prefix and names the queue');
+  ok(destinationOf({ 'dial-rule-translation-destination-user': '999', 'dial-rule-application': 'to-user' }, byExt) === 'to user 999', '[destinationOf] an unknown destination falls back to the application, to- stripped');
+  ok(destinationOf({ 'dial-rule-application': 'to-connection' }, byExt) === 'to connection', '[destinationOf] no destination, application only — to- stripped so it does not read "to to-connection"');
+  ok(destinationOf({}, byExt) === '', '[destinationOf] neither field set is empty, not "to undefined"');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

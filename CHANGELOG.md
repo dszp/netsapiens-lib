@@ -5,6 +5,15 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.1 — 2026-09-05
+
+### Added
+
+- `NumberItem.destination`: where a phone number routes, in words (`to user 100 — Ann Lee`, `to queue 701 — Sales`), built by the new exported `destinationOf(p, userByExt)`.
+- `NumberItem.description`: `dial-rule-description` trimmed — the note the portal writes (e.g. `Portal Created: User - 1001`).
+- `usersByExt(users)`: one record per non-blank `user`, first one wins — extracted out of `attribution.ts` so there is one copy of that lookup in the library.
+- `ExtensionItem.deviceNames`: the `aor` local part of every device on the extension, handset and Teams connector alike (`101b`, `103t`), in record order — the device NAME as the portal shows it, still never the MAC, SIP password or email.
+
 ## [0.4.0] — 2026-09-05
 
 ### Added

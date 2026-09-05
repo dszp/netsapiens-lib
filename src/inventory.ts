@@ -7,10 +7,11 @@
  * ## Counts, and the lists behind them
  *
  * A device record from NetSapiens carries the SIP registration password. `listDomainInventory` builds
- * per-item lists — an extension's name and site, a number's kind, an address's label — from an
- * allowlist of named fields, and `countDomainInventory` is a fold over those same lists. Either way, a
- * device's MAC and SIP credentials never appear: nothing here returns a raw record, and nothing should
- * be added that does.
+ * per-item lists — an extension's name and site, a number's kind and routing destination, an address's
+ * label — from an allowlist of named fields, and `countDomainInventory` is a fold over those same
+ * lists. The allowlist now includes a device's NAME (its `aor` local part, e.g. `101b` — the same
+ * short id the portal shows) alongside its model; a device's MAC, SIP password and email never appear,
+ * and nothing here should be added that carries one.
  *
  * ## Every countable dimension is a numeric leaf
  *
@@ -89,10 +90,24 @@ export interface ExtensionItem {
   deviceCount: number;
   /** `device-models-model` per handset, `(unknown)` when blank. Never the MAC. */
   deviceModels: string[];
+  /**
+   * The `aor` local part of EVERY device on this extension, handset or Teams connector alike, in the
+   * order the records came (`sip:101b@acme.example` → `101b`). This is the device NAME as the portal
+   * shows it, not a credential — the MAC and SIP password never appear here or anywhere else.
+   */
+  deviceNames: string[];
   /** `deviceCount > 0 || teams` — has a device of any kind, handset or connector. */
   anyDevice: boolean;
 }
-export interface NumberItem { key: string /* did:<phonenumber>, or did:~<hash> when the number is blank */; number: string; kind: 'local' | 'tollFree' }
+export interface NumberItem {
+  key: string /* did:<phonenumber>, or did:~<hash> when the number is blank */;
+  number: string;
+  kind: 'local' | 'tollFree';
+  /** Where the number routes, for a person: see {@link destinationOf}. `''` when the record says nothing. */
+  destination: string;
+  /** `dial-rule-description` trimmed — the note the portal writes ("Portal Created: User - 1001"); `''` when blank. */
+  description: string;
+}
 export interface AddressItem { key: string /* addr:<emergency-address-id>, or addr:~<hash> when the id is blank */; label: string }
 export interface SmsItem { key: string /* sms:<number>, or sms:~<hash> when the number is blank */; number: string }
 export type InventoryItem = ExtensionItem | NumberItem | AddressItem | SmsItem;
@@ -188,8 +203,65 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
     // A device whose model is blank is listed under a named bucket rather than dropped: a missing
     // model is a provisioning gap worth seeing, and a silently smaller total hides it.
     deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
+    // Every device, including the Teams connector — this is a display name, not a seat count.
+    deviceNames: devices.map((d) => aorLocal(d)),
     anyDevice: handsets.length > 0 || teams,
   };
+}
+
+/**
+ * One record per non-blank `user`, first one wins. The same rule `attribution.ts` needs to join a
+ * number's `dial-rule-translation-destination-user` (or an SMS number, or an address) back to the
+ * user it belongs to — extracted here so there is exactly one copy of it in the library.
+ */
+export function usersByExt(users: Rec[]): Map<string, Rec> {
+  const map = new Map<string, Rec>();
+  for (const u of users) {
+    const ext = str(u.user);
+    if (ext && !map.has(ext)) map.set(ext, u);
+  }
+  return map;
+}
+
+/**
+ * Where a phone number routes, in words a person reads at a glance — not the raw NetSapiens dial
+ * rule fields. Pure; looks the destination user up in `userByExt` ({@link usersByExt}) so it can
+ * name a real extension or a system object (`system-queue` → `queue`, `system-aa` → `aa`, and so
+ * on) rather than just echoing back an extension number.
+ *
+ * - The destination names a REAL extension → `to user <ext> — <First Last>` (the name is omitted,
+ *   dash and all, when both name fields are blank).
+ * - The destination names a SYSTEM user (a queue, an attendant, a time-of-day router) →
+ *   `to <kind> <ext> — <name>`, `kind` being the `service-code` with its `system-` prefix stripped
+ *   (`queue`, `aa`, `tod`, or the raw code for anything else); name omitted the same way.
+ * - The destination is set but names nobody NetSapiens knows about → `to <application> <dest>`
+ *   (`dial-rule-application` with a leading `to-` stripped, so `to-user` reads as `user`; falls back
+ *   to `user` itself when the application is blank), plus `@<host>` whenever
+ *   `dial-rule-translation-destination-host` is non-empty — this module has no domain to compare it
+ *   against, so any non-empty host is shown.
+ * - No destination but an application is set → `to <application>` (`to-connection` → `to connection`,
+ *   `to-voicemail` → `to voicemail`).
+ * - Neither is set → `''`.
+ */
+export function destinationOf(p: Rec, userByExt: Map<string, Rec>): string {
+  const dest = str(p['dial-rule-translation-destination-user']);
+  const app = str(p['dial-rule-application']).replace(/^to-/i, '');
+  const host = str(p['dial-rule-translation-destination-host']);
+
+  if (dest) {
+    const u = userByExt.get(dest);
+    if (u) {
+      const name = `${str(u['name-first-name'])} ${str(u['name-last-name'])}`.trim();
+      if (isSystemUser(u)) {
+        const kind = str(u['service-code']).replace(/^system-/i, '');
+        return name ? `to ${kind} ${dest} — ${name}` : `to ${kind} ${dest}`;
+      }
+      return name ? `to user ${dest} — ${name}` : `to user ${dest}`;
+    }
+    const hostPart = host ? `@${host}` : '';
+    return `to ${app || 'user'} ${dest}${hostPart}`;
+  }
+  return app ? `to ${app}` : '';
 }
 
 /**
@@ -230,10 +302,13 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
     const item = extensionItem(u, devicesByUser[ext] ?? []);
     (isSystemUser(u) ? systemUsers : extensions).push(item);
   }
+  const userByExt = usersByExt(users);
   const dids: NumberItem[] = phonenumbers.map((p) => {
     const number = str(p.phonenumber);
     const kind: 'local' | 'tollFree' = isTollFree(number) ? 'tollFree' : 'local';
-    return { key: identityKey('did', number, JSON.stringify({ number, kind })), number, kind };
+    const destination = destinationOf(p, userByExt);
+    const description = str(p['dial-rule-description']);
+    return { key: identityKey('did', number, JSON.stringify({ number, kind })), number, kind, destination, description };
   });
   const e911Addresses: AddressItem[] = addresses.map((a, i) => {
     const id = str(a['emergency-address-id']);

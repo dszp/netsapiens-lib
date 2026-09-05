@@ -31,7 +31,7 @@
  * put an item's KEY (which may be a derived `~hash`) beside its RECORD's routing fields. That
  * invariant is this library's own, and this is the one place allowed to lean on it.
  */
-import { isSystemUser, listDomainInventory, str } from './inventory.js';
+import { isSystemUser, listDomainInventory, str, usersByExt } from './inventory.js';
 import type { Rec, Snapshot } from './model.js';
 
 export interface ItemAttribution {
@@ -53,8 +53,7 @@ export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution 
   const d = listDomainInventory(snapshot);
   const items: Record<string, ItemAttribution> = {};
 
-  const userByExt = new Map<string, Rec>();
-  for (const u of users) { const ext = str(u.user); if (ext && !userByExt.has(ext)) userByExt.set(ext, u); }
+  const userByExt = usersByExt(users);
 
   // Extensions: the detail already carries `site`, so no record is needed here.
   for (const x of d.extensions) items[x.key] = x.site ? { site: x.site, how: 'own-site' } : none('no-site');
