@@ -258,7 +258,14 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
 
 /** The counts, as a fold over {@link listDomainInventory} so the two can never disagree. */
 export function countDomainInventory(snapshot: Snapshot): DomainInventory {
-  const d = listDomainInventory(snapshot);
+  return countInventoryDetail(listDomainInventory(snapshot));
+}
+
+/**
+ * Count an item list. Exposed separately so a consumer that has FILTERED the lists — to one site, to
+ * one billing account — gets counts that agree with what it kept, rather than re-counting the snapshot.
+ */
+export function countInventoryDetail(d: DomainInventoryDetail): DomainInventory {
   const inv: DomainInventory = {
     extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 }, withAnyDevice: 0, withNoDevice: 0 },
     systemUsers: { total: d.systemUsers.length, byServiceCode: {} },

@@ -102,6 +102,14 @@ export interface Snapshot {
    * that returns the list. Present only when the fetch asked for them.
    */
   smsnumbers?: Rec[];
+  /**
+   * SMS-enabled numbers PER USER — GET /domains/{d}/users/{ext}/smsnumbers, one call per real
+   * extension, present only when `includeUserSmsNumbers` was asked for. The domain-level list
+   * (`smsnumbers`) does not say which user a number is enabled on; this does.
+   */
+  smsNumbersByUser?: Record<string, Rec[]>;
+  /** Extensions whose per-user SMS read failed with something other than 404 — same contract as `deviceReadFailures`. */
+  smsReadFailures?: string[];
   autoattendants?: Rec[];
   dialrulesByPlan?: Record<string, Rec[]>;
   answerrulesByUser?: Record<string, Rec[]>;
