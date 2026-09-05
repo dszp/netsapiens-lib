@@ -61,17 +61,21 @@ Two composites are provided because they're multi-read and worth getting right o
 | `listDomains(client)` | `/domains` → `{domain, description, locked}[]` |
 | `fetchDomainSnapshot(client, domain, opts?)` | `/domains/{d}` plus, in parallel, `timeframes`, `users`, `callqueues`, `phonenumbers`, `autoattendants` — then per-user `answerrules`. Individual reads fail **soft** (a missing collection yields `[]`, not a thrown snapshot). |
 
-The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export. Three
+The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export. Four
 options pull in more, each off by default because each costs an extra read: `includeAddresses` (E911
-address records), `includeSmsNumbers` (SMS-enabled numbers), and `includeDevices` (per-extension device
-records — one `/devices` read per real extension, so it is the expensive one on a domain with many seats).
-All three exist for `countDomainInventory()` below; a caller that only resolves call flows never needs them.
+address records), `includeSmsNumbers` (the domain-level SMS-enabled number list), `includeDevices`
+(per-extension device records — one `/devices` read per real extension, so it is the expensive one on a
+domain with many seats), and `includeUserSmsNumbers` (per-extension SMS numbers into
+`snapshot.smsNumbersByUser` — same one-read-per-extension cost, needed because the domain-level list
+doesn't say which user a number belongs to). All four exist for `countDomainInventory()` below; a caller
+that only resolves call flows never needs them.
 
 A per-extension devices read that fails with anything other than 404 does not abort the snapshot — the
 extension stays in `users` with no entry in `devicesByUser`, and its number is recorded in
 `snapshot.deviceReadFailures` instead. `deviceReadFailures` is set whenever `includeDevices` was asked
 for (an empty array when nothing failed) and absent otherwise, so a device-count consumer can tell a
 genuine zero from a read that never completed rather than silently undercounting.
+`includeUserSmsNumbers` fails the same way into `snapshot.smsReadFailures`.
 
 ### Counting a domain: `countDomainInventory`
 
@@ -156,6 +160,18 @@ const detail = listDomainInventory(snapshot);
 const premium = itemsFor(detail, 'extensions.byServiceCode.premium') ?? [];
 premium.map(itemLabel); // e.g. ["101 — Jane Doe, North", "102"]
 ```
+
+A domain often serves several billing accounts or physical sites at once, and a consumer reconciling
+against one of them needs to know which inventory items are actually its own. `attributeDomainInventory(snapshot)`
+answers that: it's pure (no account knowledge, just the snapshot) and labels every extension, number,
+address and SMS number either `own-site` (the item's own site matches), `via-user:<ext>` /
+`via-users:<exts>` (it's reachable only through another item that has a site), or an
+`unattributed:<reason>` — `no-site`, `routed-to:<x>`, `shared-across:<sites>`, `unreferenced`, or
+`sms-user-unknown` when a domain-level SMS number can't be matched to a user because the snapshot was
+never fetched with `includeUserSmsNumbers`. Filter `listDomainInventory(snapshot)`'s items by that
+attribution to scope a domain down to one site, then run `countInventoryDetail(detail)` over what's left
+to get counts that agree with what you kept, rather than recomputing `countDomainInventory` against the
+whole domain and hoping the numbers happen to match.
 
 ### Read/write split by charter
 

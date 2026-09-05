@@ -183,6 +183,12 @@ export interface FetchSnapshotOptions {
    * auto attendants and queues, and they hold no seat.
    */
   includeDevices?: boolean;
+  /**
+   * Also read each REAL extension's SMS-enabled numbers into `smsNumbersByUser`. One call per
+   * extension, like `includeDevices`, and for the same reason: the domain-level list does not say
+   * which user a number belongs to, and a consumer splitting a domain by site needs to know.
+   */
+  includeUserSmsNumbers?: boolean;
 }
 
 /**
@@ -260,6 +266,25 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     });
   }
 
+  // Per-user SMS numbers, same shape and reason as devices above: the domain-level list (see
+  // includeSmsNumbers) does not say which user a number belongs to.
+  let smsNumbersByUser: Record<string, Rec[]> | undefined;
+  let smsReadFailures: string[] | undefined;
+  if (opts.includeUserSmsNumbers) {
+    smsNumbersByUser = {};
+    smsReadFailures = [];
+    const seats = users.filter((u) => !String(u['service-code'] ?? '').trim().toLowerCase().startsWith('system-'));
+    await mapLimit(seats, conc, async (u) => {
+      const ext = String(u.user ?? '');
+      if (!ext) return;
+      const list = await soft(`${base}/users/${enc(ext)}/smsnumbers`).catch(() => {
+        smsReadFailures!.push(ext);
+        return [];
+      });
+      if (list.length) smsNumbersByUser![ext] = list;
+    });
+  }
+
   const answerrulesByUser: Record<string, Rec[]> = {};
   await mapLimit(users, conc, async (u) => {
     const ext = String(u.user ?? '');
@@ -316,6 +341,8 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     ...(smsnumbers ? { smsnumbers } : {}),
     ...(devicesByUser ? { devicesByUser } : {}),
     ...(deviceReadFailures ? { deviceReadFailures } : {}),
+    ...(smsNumbersByUser ? { smsNumbersByUser } : {}),
+    ...(smsReadFailures ? { smsReadFailures } : {}),
     ...(attendantDetailsByUser && Object.keys(attendantDetailsByUser).length ? { attendantDetailsByUser } : {}),
     ...(attendantDialrulesByExt && Object.keys(attendantDialrulesByExt).length ? { attendantDialrulesByExt } : {}),
     ...(dialrulesByPlan ? { dialrulesByPlan } : {}),

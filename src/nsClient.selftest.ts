@@ -168,6 +168,25 @@ const ok = (c: boolean, msg: string) => {
     ok(noDevicesSnap.deviceReadFailures === undefined, 'without includeDevices, deviceReadFailures is absent entirely');
   }
 
+  // -- per-user SMS numbers: one call per REAL extension, opt-in, failures named like device reads --
+  {
+    const seen: string[] = [];
+    const client = { get: async (p: string) => {
+      seen.push(p);
+      if (p.endsWith('/users')) return [{ user: '100', 'service-code': '' }, { user: '101', 'service-code': '' }, { user: '700', 'service-code': 'system-aa' }];
+      if (p.endsWith('/users/100/smsnumbers')) return [{ number: '13175550100' }];
+      if (p.endsWith('/users/101/smsnumbers')) throw new NsApiError('GET .../smsnumbers → 500', 500, p, null);
+      if (/\/domains\/[^/]+$/.test(p)) return [{ domain: 'acme.example' }];
+      return [];
+    } } as unknown as NsClient;
+    const snap = await fetchDomainSnapshot(client, 'acme.example', { includeAttendantMenus: false, includeUserSmsNumbers: true });
+    ok(JSON.stringify(snap.smsNumbersByUser) === JSON.stringify({ '100': [{ number: '13175550100' }] }), 'per-user SMS numbers are filed under the extension');
+    ok(JSON.stringify(snap.smsReadFailures) === JSON.stringify(['101']), 'a failed per-user SMS read is named');
+    ok(!seen.some((p) => p.endsWith('/users/700/smsnumbers')), 'system users are not read');
+    const plain = await fetchDomainSnapshot(client, 'acme.example', { includeAttendantMenus: false });
+    ok(plain.smsNumbersByUser === undefined && plain.smsReadFailures === undefined, 'without the option neither field is present');
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
