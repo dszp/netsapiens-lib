@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## 0.5.0 — 2026-09-05
 
+### Changed
+
+- `attributeDomainInventory`: a number routed to a system user (a queue, an attendant, a time-of-day router) now inherits that user's site, same as a real user, when it has one — a queue at the North site is a North number. Only a site-less system user still falls back to `unattributed:routed-to:<service-code>`.
+
 ### Added
 
 - `NumberItem.destination`: where a phone number routes, in words (`to user 100 — Ann Lee`, `to queue 701 — Sales`), built by the new exported `destinationOf(p, userByExt)`.

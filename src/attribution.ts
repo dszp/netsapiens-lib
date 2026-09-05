@@ -13,11 +13,11 @@
  * ## The rules
  *
  * - An extension: its own `site` (`own-site`), or `unattributed:no-site` when blank.
- * - A number: the site of its `dial-rule-translation-destination-user` when that names a REAL
- *   extension (`via-user:<ext>`), whatever the application — `to-user`, `to-single-device`. When it
- *   names a system user (a queue, an attendant, a time-of-day router are users too) the reason is
- *   `routed-to:<that user's service-code>`; when it names nobody, `routed-to:<application>`; a real
- *   user with no site is `no-site`.
+ * - A number: the site of its `dial-rule-translation-destination-user` when that names a user WITH a
+ *   site (`via-user:<ext>`) — real or system, whatever the application (`to-user`, `to-single-device`);
+ *   a queue at the North site is a North number. Only a site-less system user falls back to
+ *   `routed-to:<that user's service-code>`; when the destination names nobody, `routed-to:<application>`;
+ *   a site-less real user is `no-site`.
  * - An address: the one site every REAL extension referencing it sits on (`via-users:<exts>`);
  *   `shared-across:<sites>` when they sit on more than one; `unreferenced` when none does;
  *   `no-site` when the referencing users have no site.
@@ -65,9 +65,9 @@ export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution 
     const dest = str(p['dial-rule-translation-destination-user']);
     const u = dest ? userByExt.get(dest) : undefined;
     if (!u) { items[key] = none(`routed-to:${app}`); continue; }
-    if (isSystemUser(u)) { items[key] = none(`routed-to:${str(u['service-code'])}`); continue; }
     const site = str(u.site);
-    items[key] = site ? { site, how: `via-user:${dest}` } : none('no-site');
+    if (!site) { items[key] = isSystemUser(u) ? none(`routed-to:${str(u['service-code'])}`) : none('no-site'); continue; }
+    items[key] = { site, how: `via-user:${dest}` };
   }
 
   // Addresses, by index against `addresses`; referenced by REAL extensions only.

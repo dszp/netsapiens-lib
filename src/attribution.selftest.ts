@@ -14,6 +14,7 @@ const snap: Snapshot = {
     { user: '102', site: 'South', 'service-code': '', 'emergency-address-id': 'a-2' },
     { user: '103', site: '', 'service-code': '' },                       // no site
     { user: '701', site: 'North', 'service-code': 'system-queue' },       // a queue is a user too
+    { user: '702', site: '', 'service-code': 'system-tod' },              // a site-less system user
   ],
   phonenumbers: [
     { phonenumber: '13175550100', 'dial-rule-application': 'to-user', 'dial-rule-translation-destination-user': '100' },
@@ -21,6 +22,7 @@ const snap: Snapshot = {
     { phonenumber: '13175550102', 'dial-rule-application': 'to-connection', 'dial-rule-translation-destination-user': '' },
     { phonenumber: '13175550103', 'dial-rule-application': 'to-user', 'dial-rule-translation-destination-user': '103' },
     { phonenumber: '13175550104', 'dial-rule-application': 'to-user', 'dial-rule-translation-destination-user': '999' },
+    { phonenumber: '13175550106', 'dial-rule-application': 'to-user', 'dial-rule-translation-destination-user': '702' },
   ],
   addresses: [
     { 'emergency-address-id': 'a-1', 'address-name': 'Shared' },
@@ -41,7 +43,8 @@ ok(a['ext:100']!.site === 'North' && a['ext:100']!.how === 'own-site', 'an exten
 ok(a['ext:103']!.site === null && a['ext:103']!.how === 'unattributed:no-site', 'an extension with a blank site is unattributed:no-site');
 
 ok(a['did:13175550100']!.site === 'North' && a['did:13175550100']!.how === 'via-user:100', 'a number routed to a user inherits that user\'s site');
-ok(a['did:13175550101']!.site === null && a['did:13175550101']!.how === 'unattributed:routed-to:system-queue', 'a number routed to a queue names the queue\'s service code');
+ok(a['did:13175550101']!.site === 'North' && a['did:13175550101']!.how === 'via-user:701', 'a number routed to a system user with a site inherits that site, same as a real user');
+ok(a['did:13175550106']!.site === null && a['did:13175550106']!.how === 'unattributed:routed-to:system-tod', 'a number routed to a site-less system user names its service code');
 ok(a['did:13175550102']!.site === null && a['did:13175550102']!.how === 'unattributed:routed-to:to-connection', 'a number routed to a connection names the application');
 ok(a['did:13175550103']!.site === null && a['did:13175550103']!.how === 'unattributed:no-site', 'a number routed to a site-less user is no-site, not routed-to');
 ok(a['did:13175550104']!.site === null && a['did:13175550104']!.how === 'unattributed:routed-to:to-user', 'a number whose destination user does not exist falls back to the application name');
