@@ -67,6 +67,12 @@ address records), `includeSmsNumbers` (SMS-enabled numbers), and `includeDevices
 records — one `/devices` read per real extension, so it is the expensive one on a domain with many seats).
 All three exist for `countDomainInventory()` below; a caller that only resolves call flows never needs them.
 
+A per-extension devices read that fails with anything other than 404 does not abort the snapshot — the
+extension stays in `users` with no entry in `devicesByUser`, and its number is recorded in
+`snapshot.deviceReadFailures` instead. `deviceReadFailures` is set whenever `includeDevices` was asked
+for (an empty array when nothing failed) and absent otherwise, so a device-count consumer can tell a
+genuine zero from a read that never completed rather than silently undercounting.
+
 ### Counting a domain: `countDomainInventory`
 
 `countDomainInventory(snapshot)` is pure — it fetches nothing, and turns a `Snapshot` (from

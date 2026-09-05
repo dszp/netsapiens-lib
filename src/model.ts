@@ -81,6 +81,13 @@ export interface Snapshot {
   timeframes?: Rec[];
   users?: Rec[];
   devicesByUser?: Record<string, Rec[]>;
+  /**
+   * Extensions whose `/devices` read failed with something other than 404 — present only when
+   * `includeDevices` was asked for. The extension is still in `users`, with no entry in
+   * `devicesByUser`, so a consumer counting devices sees zero for it and must read this list to
+   * know that zero is not a fact.
+   */
+  deviceReadFailures?: string[];
   callqueues?: Rec[];
   agentsByQueue?: Record<string, Rec[]>;
   phonenumbers?: Rec[];

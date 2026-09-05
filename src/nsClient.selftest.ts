@@ -8,7 +8,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { NsClient, fetchDomainSnapshot } from './nsClient.js';
+import { NsApiError, NsClient, fetchDomainSnapshot } from './nsClient.js';
 import { resolveFlow, listEntities } from './resolver.js';
 import type { Snapshot } from './model.js';
 
@@ -127,6 +127,45 @@ const ok = (c: boolean, msg: string) => {
     const off = await fetchDomainSnapshot(fake, 'acme.example', { includeAttendantMenus: false });
     ok(off.addresses === undefined && off.smsnumbers === undefined && off.devicesByUser === undefined,
       'all three reads are opt-in - a caller that wants routing pays for none of them');
+  }
+
+  // -- a per-extension devices read that fails is reported, not swallowed -------------------------
+  {
+    const failFake = {
+      get: async (p: string) => {
+        if (/\/users$/.test(p)) return [
+          { user: '100', 'service-code': '' },
+          { user: '102', 'service-code': '' },
+          { user: '103', 'service-code': '' },
+        ];
+        if (/\/users\/100\/devices$/.test(p)) return [{ aor: 'sip:100@acme.example' }];
+        if (/\/users\/102\/devices$/.test(p)) throw new NsApiError('GET .../devices → 500', 500, p, null);
+        if (/\/users\/103\/devices$/.test(p)) throw new NsApiError('GET .../devices → 404', 404, p, null);
+        return [];
+      },
+    } as unknown as NsClient;
+
+    const failSnap = await fetchDomainSnapshot(failFake, 'acme.example', { includeAttendantMenus: false, includeDevices: true });
+    ok(failSnap.devicesByUser?.['100']?.length === 1, 'the extension whose read succeeded keeps its devices');
+    ok(failSnap.devicesByUser?.['102'] === undefined, 'the extension whose read failed has no devicesByUser entry');
+    ok(failSnap.devicesByUser?.['103'] === undefined, 'a 404 extension also has no devicesByUser entry');
+    ok(JSON.stringify(failSnap.deviceReadFailures) === JSON.stringify(['102']),
+      'deviceReadFailures names only the non-404 failure, not the 404');
+
+    const okFake = {
+      get: async (p: string) => {
+        if (/\/users$/.test(p)) return [{ user: '100', 'service-code': '' }];
+        if (/\/users\/100\/devices$/.test(p)) return [{ aor: 'sip:100@acme.example' }];
+        return [];
+      },
+    } as unknown as NsClient;
+
+    const okSnap = await fetchDomainSnapshot(okFake, 'acme.example', { includeAttendantMenus: false, includeDevices: true });
+    ok(Array.isArray(okSnap.deviceReadFailures) && okSnap.deviceReadFailures.length === 0,
+      'no failures - deviceReadFailures is an empty array, not absent');
+
+    const noDevicesSnap = await fetchDomainSnapshot(okFake, 'acme.example', { includeAttendantMenus: false });
+    ok(noDevicesSnap.deviceReadFailures === undefined, 'without includeDevices, deviceReadFailures is absent entirely');
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

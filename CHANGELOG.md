@@ -32,6 +32,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from `byDeviceCount` and `teamsConnected`. `itemsFor` answers both new paths; the two leaves partition
   `extensions.total`.
 
+### Fixed
+
+- **`fetchDomainSnapshot` no longer swallows a per-extension devices read that fails.** With
+  `includeDevices`, a `/devices` call that failed with anything other than 404 was caught and treated
+  the same as "no devices" — a consumer counting devices saw zero for that extension with no way to
+  tell it apart from a real zero. `Snapshot` gains **`deviceReadFailures?: string[]`**: the extensions
+  whose read failed, present whenever `includeDevices` was asked for (`[]` when nothing failed, absent
+  otherwise). A 404 is still softened to `[]` and is not a failure.
+
 ### Changed
 
 - **`countDomainInventory` is now a fold over `listDomainInventory`'s lists** — same output shape and

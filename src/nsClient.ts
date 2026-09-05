@@ -241,13 +241,21 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
   // Devices, per REAL extension. One call each — there is no domain-level device list — so this is the
   // expensive half of an inventory read and is opt-in for that reason.
   let devicesByUser: Record<string, Rec[]> | undefined;
+  let deviceReadFailures: string[] | undefined;
   if (opts.includeDevices) {
     devicesByUser = {};
+    deviceReadFailures = [];
     const seats = users.filter((u) => !String(u['service-code'] ?? '').trim().toLowerCase().startsWith('system-'));
     await mapLimit(seats, conc, async (u) => {
       const ext = String(u.user ?? '');
       if (!ext) return;
-      const devs = await soft(`${base}/users/${enc(ext)}/devices`).catch(() => []);
+      // `soft()` already turns a 404 into `[]` — that is "no devices", not a failure. Anything else
+      // it rethrows, and THAT is what gets recorded here: a consumer counting devices must be able
+      // to tell a genuine zero from a read that never completed.
+      const devs = await soft(`${base}/users/${enc(ext)}/devices`).catch(() => {
+        deviceReadFailures!.push(ext);
+        return [];
+      });
       if (devs.length) devicesByUser![ext] = devs;
     });
   }
@@ -307,6 +315,7 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     ...(addresses ? { addresses } : {}),
     ...(smsnumbers ? { smsnumbers } : {}),
     ...(devicesByUser ? { devicesByUser } : {}),
+    ...(deviceReadFailures ? { deviceReadFailures } : {}),
     ...(attendantDetailsByUser && Object.keys(attendantDetailsByUser).length ? { attendantDetailsByUser } : {}),
     ...(attendantDialrulesByExt && Object.keys(attendantDialrulesByExt).length ? { attendantDialrulesByExt } : {}),
     ...(dialrulesByPlan ? { dialrulesByPlan } : {}),
