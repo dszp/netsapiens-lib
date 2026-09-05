@@ -183,6 +183,12 @@ export interface FetchSnapshotOptions {
    * auto attendants and queues, and they hold no seat.
    */
   includeDevices?: boolean;
+  /**
+   * Also read each REAL extension's SMS-enabled numbers into `smsNumbersByUser`. One call per
+   * extension, like `includeDevices`, and for the same reason: the domain-level list does not say
+   * which user a number belongs to, and a consumer splitting a domain by site needs to know.
+   */
+  includeUserSmsNumbers?: boolean;
 }
 
 /**
@@ -258,6 +264,30 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
       });
       if (devs.length) devicesByUser![ext] = devs;
     });
+    // SORTED before it leaves. These fill under `mapLimit`, so the order is whichever read failed first —
+    // a list that reshuffles between two reads of the same broken domain reads as data that changed, and a
+    // consumer prints this straight at an operator.
+    deviceReadFailures.sort();
+  }
+
+  // Per-user SMS numbers, same shape and reason as devices above: the domain-level list (see
+  // includeSmsNumbers) does not say which user a number belongs to.
+  let smsNumbersByUser: Record<string, Rec[]> | undefined;
+  let smsReadFailures: string[] | undefined;
+  if (opts.includeUserSmsNumbers) {
+    smsNumbersByUser = {};
+    smsReadFailures = [];
+    const seats = users.filter((u) => !String(u['service-code'] ?? '').trim().toLowerCase().startsWith('system-'));
+    await mapLimit(seats, conc, async (u) => {
+      const ext = String(u.user ?? '');
+      if (!ext) return;
+      const list = await soft(`${base}/users/${enc(ext)}/smsnumbers`).catch(() => {
+        smsReadFailures!.push(ext);
+        return [];
+      });
+      if (list.length) smsNumbersByUser![ext] = list;
+    });
+    smsReadFailures.sort();   // same reason as deviceReadFailures above
   }
 
   const answerrulesByUser: Record<string, Rec[]> = {};
@@ -316,6 +346,8 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     ...(smsnumbers ? { smsnumbers } : {}),
     ...(devicesByUser ? { devicesByUser } : {}),
     ...(deviceReadFailures ? { deviceReadFailures } : {}),
+    ...(smsNumbersByUser ? { smsNumbersByUser } : {}),
+    ...(smsReadFailures ? { smsReadFailures } : {}),
     ...(attendantDetailsByUser && Object.keys(attendantDetailsByUser).length ? { attendantDetailsByUser } : {}),
     ...(attendantDialrulesByExt && Object.keys(attendantDialrulesByExt).length ? { attendantDialrulesByExt } : {}),
     ...(dialrulesByPlan ? { dialrulesByPlan } : {}),
