@@ -12,6 +12,7 @@ const snap: Snapshot = {
     { user: '101', 'user-scope': 'Basic User', 'service-code': 'premium', 'voicemail-transcription-enabled': 'yes' },
     { user: '102', 'user-scope': 'Office Manager', 'service-code': 'premium', 'voicemail-transcription-enabled': 'voicebase' },
     { user: '103', 'user-scope': 'Basic User', 'service-code': '' },
+    { user: '104', 'user-scope': 'Basic User', 'service-code': '' },
     { user: '700', 'user-scope': 'Basic User', 'service-code': 'system-aa' },
     { user: '701', 'user-scope': 'Basic User', 'service-code': 'system-queue' },
     { user: '702', 'user-scope': 'Basic User', 'service-code': 'system-tod' },
@@ -39,13 +40,13 @@ const snap: Snapshot = {
 
 const inv = countDomainInventory(snap);
 
-ok(inv.extensions.total === 4, 'four real extensions — the three system-* users are not extensions');
-ok(inv.extensions.byScope['Basic User'] === 3, 'three Basic User extensions');
+ok(inv.extensions.total === 5, 'five real extensions — the three system-* users are not extensions');
+ok(inv.extensions.byScope['Basic User'] === 4, 'four Basic User extensions');
 ok(inv.extensions.byScope['Office Manager'] === 1, 'one Office Manager extension');
 ok(inv.extensions.byScope['system-aa'] === undefined, 'byScope never carries a system user');
-ok(inv.extensions.byServiceCode[''] === 2, 'the empty service code is a key, not a dropped bucket');
+ok(inv.extensions.byServiceCode[''] === 3, 'the empty service code is a key, not a dropped bucket');
 ok(inv.extensions.byServiceCode['premium'] === 2, 'two premium-coded extensions');
-ok(inv.extensions.byDeviceCount['0'] === 1, 'one extension with no device');
+ok(inv.extensions.byDeviceCount['0'] === 2, 'two extensions with no device');
 ok(inv.extensions.byDeviceCount['1'] === 2, 'two extensions with one device');
 ok(inv.extensions.byDeviceCount['2'] === 0, 'none with exactly two');
 ok(inv.extensions.byDeviceCount['3+'] === 1, 'one extension with three devices lands in 3+');
@@ -82,7 +83,7 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
 // ── listDomainInventory ─────────────────────────────────────────────────────────────────────────────
 {
   const d = listDomainInventory(snap);
-  ok(d.extensions.length === 4, '[list] four real extensions');
+  ok(d.extensions.length === 5, '[list] five real extensions');
   ok(d.systemUsers.length === 3, '[list] three system users, listed apart');
   const e100 = d.extensions.find((x) => x.ext === '100')!;
   ok(e100.key === 'ext:100', '[list] an extension key is ext:<user>');
@@ -95,6 +96,8 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(e103.deviceCount === 0 && e103.deviceModels.length === 0, '[list] and that connector is not counted as a device');
   ok(d.extensions.find((x) => x.ext === '101')!.transcription === true, '[list] transcription flag');
   ok(d.extensions.find((x) => x.ext === '103')!.name === '', '[list] a user with no name has an empty name, not "undefined undefined"');
+  ok(d.extensions.find((x) => x.ext === '103')!.anyDevice === true, '[list] an extension with only the Teams connector still has a device');
+  ok(d.extensions.find((x) => x.ext === '104')!.anyDevice === false, '[list] and one with nothing has none');
   ok(d.dids.length === 4 && d.dids.filter((n) => n.kind === 'tollFree').length === 2, '[list] numbers with kind');
   ok(d.dids[0]!.key === 'did:13175550100', '[list] a number key is did:<phonenumber>');
   ok(d.e911Addresses.length === 2 && d.e911Addresses[0]!.key === 'addr:a-1', '[list] an address key is addr:<emergency-address-id>');
@@ -112,7 +115,9 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(c.transcriptionEnabled === d.extensions.filter((x) => x.transcription).length, '[fold] transcription count equals the flagged items');
   ok(c.teamsConnected === 1, '[fold] teamsConnected is a new numeric leaf');
   ok(c.devices.total === 5, '[fold] the Teams connector is excluded from devices.total (still 5)');
-  ok(c.extensions.byDeviceCount['0'] === 1, '[fold] and from byDeviceCount — 103 has zero handsets');
+  ok(c.extensions.byDeviceCount['0'] === 2, '[fold] and from byDeviceCount — 103 and 104 have zero handsets');
+  ok(c.extensions.withAnyDevice === 4 && c.extensions.withNoDevice === 1, '[fold] device presence counts, connector included');
+  ok(c.extensions.withAnyDevice + c.extensions.withNoDevice === c.extensions.total, '[fold] the two presence leaves partition the total');
   ok(c.dids.total === d.dids.length && c.dids.tollFree === d.dids.filter((n) => n.kind === 'tollFree').length, '[fold] number counts equal the list');
   ok(c.e911Addresses === d.e911Addresses.length && c.smsNumbers === d.smsNumbers.length, '[fold] address and SMS counts equal the lists');
 }
@@ -121,11 +126,13 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
 {
   const d = listDomainInventory(snap);
   const keys = (p: string) => (itemsFor(d, p) ?? []).map((x) => x.key).join(',');
-  ok(keys('extensions.total') === 'ext:100,ext:101,ext:102,ext:103', '[itemsFor] extensions.total is every extension');
+  ok(keys('extensions.total') === 'ext:100,ext:101,ext:102,ext:103,ext:104', '[itemsFor] extensions.total is every extension');
   ok(keys('extensions.byScope.Office Manager') === 'ext:102', '[itemsFor] byScope filters on scope');
   ok(keys('extensions.byServiceCode.premium') === 'ext:101,ext:102', '[itemsFor] byServiceCode filters on service code');
-  ok(keys('extensions.byServiceCode.') === 'ext:100,ext:103', '[itemsFor] the empty service code is addressable with a trailing dot');
+  ok(keys('extensions.byServiceCode.') === 'ext:100,ext:103,ext:104', '[itemsFor] the empty service code is addressable with a trailing dot');
   ok(keys('extensions.byDeviceCount.3+') === 'ext:101', '[itemsFor] byDeviceCount buckets');
+  ok(keys('extensions.withAnyDevice') === 'ext:100,ext:101,ext:102,ext:103', '[itemsFor] withAnyDevice includes the Teams-only extension');
+  ok(keys('extensions.withNoDevice') === 'ext:104', '[itemsFor] withNoDevice is the rest');
   ok(keys('transcriptionEnabled') === 'ext:101,ext:102', '[itemsFor] transcriptionEnabled is the flagged extensions');
   ok(keys('teamsConnected') === 'ext:103', '[itemsFor] teamsConnected is the Teams extensions');
   ok(keys('dids.total').split(',').length === 4 && keys('dids.tollFree') === 'did:18005550102,did:18335550103' && keys('dids.local') === 'did:13175550100,did:13175550101', '[itemsFor] numbers by kind');

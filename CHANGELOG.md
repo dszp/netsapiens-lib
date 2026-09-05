@@ -16,14 +16,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   *models* are carried; a device's MAC, SIP credentials and email never are.
 - **`itemsFor(detail, path)`** — the items behind one of `countDomainInventory`'s dotted-path counts
   (`extensions.total`, `extensions.byScope.<scope>`, `extensions.byServiceCode.<code>`,
-  `extensions.byDeviceCount.<0|1|2|3+>`, `transcriptionEnabled`, `teamsConnected`, `dids.total`,
-  `dids.tollFree`, `dids.local`, `e911Addresses`, `smsNumbers`). Returns `undefined` — not `[]` — for a
-  dimension with no item list (`devices.*`, `systemUsers.*`) or an unrecognized path.
+  `extensions.byDeviceCount.<0|1|2|3+>`, `extensions.withAnyDevice`, `extensions.withNoDevice`,
+  `transcriptionEnabled`, `teamsConnected`, `dids.total`, `dids.tollFree`, `dids.local`,
+  `e911Addresses`, `smsNumbers`). Returns `undefined` — not `[]` — for a dimension with no item list
+  (`devices.*`, `systemUsers.*`) or an unrecognized path.
 - **`itemLabel(item)`** — one display line for any `InventoryItem`, for an operator-facing accept/reject
   list.
 - **`teamsConnected`** on `DomainInventory` and `teams` on `ExtensionItem` — an extension with a
   Microsoft Teams connector device (SIP `aor` local part `<ext>t`). That connector device is excluded
   from `devices`/`deviceCount`: it is a connector, not a handset.
+- **`anyDevice`** on `ExtensionItem`, and **`extensions.withAnyDevice`** / **`extensions.withNoDevice`**
+  on `DomainInventory` — whether an extension has a device of any kind (`deviceCount > 0 || teams`:
+  handset or Teams connector, either counts). Some operators bill on device presence alone regardless of
+  count or connector type, so it is its own countable dimension rather than something a caller derives
+  from `byDeviceCount` and `teamsConnected`. `itemsFor` answers both new paths; the two leaves partition
+  `extensions.total`.
 
 ### Changed
 

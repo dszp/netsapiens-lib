@@ -74,7 +74,9 @@ All three exist for `countDomainInventory()` below; a caller that only resolves 
 VoIP operator actually sells on:
 
 - `extensions` — real seats (users whose `service-code` is empty or not `system-*`), by `total`, by
-  `byScope` (raw `user-scope`), by `byServiceCode`, and by `byDeviceCount` (`'0' | '1' | '2' | '3+'`).
+  `byScope` (raw `user-scope`), by `byServiceCode`, by `byDeviceCount` (`'0' | '1' | '2' | '3+'`), and by
+  device presence: `withAnyDevice` / `withNoDevice` (`anyDevice = deviceCount > 0 || teams` — a handset
+  or a Teams connector, either counts; the two partition `total`).
 - `systemUsers` — `system-aa`, `system-queue`, `system-tod` and friends: `total` and `byServiceCode`.
   Informational, never compared against a seat count.
 - `transcriptionEnabled` — extensions with voicemail transcription on.
@@ -129,6 +131,7 @@ no separate lookup table:
 | `extensions.byScope.<scope>` | extensions with that `user-scope` |
 | `extensions.byServiceCode.<code>` | extensions with that `service-code` (`extensions.byServiceCode.` selects the empty code) |
 | `extensions.byDeviceCount.<0\|1\|2\|3+>` | extensions in that device-count bucket |
+| `extensions.withAnyDevice` / `extensions.withNoDevice` | extensions with / without any device (handset or Teams connector) |
 | `transcriptionEnabled` | extensions with transcription on |
 | `teamsConnected` | extensions with a Teams connector |
 | `dids.total` / `dids.tollFree` / `dids.local` | phone numbers |

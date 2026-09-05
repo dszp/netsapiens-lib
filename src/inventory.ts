@@ -36,6 +36,10 @@ export interface DomainInventory {
     byServiceCode: Record<string, number>;
     /** Multi-device extensions are a real billing shape (a restaurant with four handsets on one seat). */
     byDeviceCount: Record<'0' | '1' | '2' | '3+', number>;
+    /** Extensions with `anyDevice` true — handset or Teams connector, either counts. */
+    withAnyDevice: number;
+    /** The rest: no handset and no Teams connector. `withAnyDevice + withNoDevice === total`. */
+    withNoDevice: number;
   };
   /** `system-aa`, `system-queue`, `system-tod` and any other `system-*` code. Informational. */
   systemUsers: { total: number; byServiceCode: Record<string, number> };
@@ -80,6 +84,8 @@ export interface ExtensionItem {
   deviceCount: number;
   /** `device-models-model` per handset, `(unknown)` when blank. Never the MAC. */
   deviceModels: string[];
+  /** `deviceCount > 0 || teams` — has a device of any kind, handset or connector. */
+  anyDevice: boolean;
 }
 export interface NumberItem { key: string /* did:<phonenumber> */; number: string; kind: 'local' | 'tollFree' }
 export interface AddressItem { key: string /* addr:<emergency-address-id> */; label: string }
@@ -128,6 +134,7 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
   const ext = str(u.user);
   const handsets = devices.filter((d) => aorLocal(d) !== `${ext}t`);
   const transcription = str(u['voicemail-transcription-enabled']).toLowerCase();
+  const teams = handsets.length !== devices.length;
   return {
     key: `ext:${ext}`,
     ext,
@@ -136,11 +143,12 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
     scope: str(u['user-scope']),
     serviceCode: str(u['service-code']),
     transcription: transcription !== '' && transcription !== 'no',
-    teams: handsets.length !== devices.length,
+    teams,
     deviceCount: handsets.length,
     // A device whose model is blank is listed under a named bucket rather than dropped: a missing
     // model is a provisioning gap worth seeing, and a silently smaller total hides it.
     deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
+    anyDevice: handsets.length > 0 || teams,
   };
 }
 
@@ -181,7 +189,7 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
 export function countDomainInventory(snapshot: Snapshot): DomainInventory {
   const d = listDomainInventory(snapshot);
   const inv: DomainInventory = {
-    extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 } },
+    extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 }, withAnyDevice: 0, withNoDevice: 0 },
     systemUsers: { total: d.systemUsers.length, byServiceCode: {} },
     transcriptionEnabled: 0,
     teamsConnected: 0,
@@ -197,6 +205,7 @@ export function countDomainInventory(snapshot: Snapshot): DomainInventory {
     bump(inv.extensions.byServiceCode, x.serviceCode);
     if (x.transcription) inv.transcriptionEnabled++;
     if (x.teams) inv.teamsConnected++;
+    if (x.anyDevice) inv.extensions.withAnyDevice++; else inv.extensions.withNoDevice++;
     const bucket = x.deviceCount >= 3 ? '3+' : (String(x.deviceCount) as '0' | '1' | '2');
     inv.extensions.byDeviceCount[bucket]++;
     inv.devices.total += x.deviceCount;
@@ -220,6 +229,8 @@ export function itemsFor(detail: DomainInventoryDetail, path: string): Inventory
     const v = path.slice('extensions.byDeviceCount.'.length);
     return ex.filter((x) => (x.deviceCount >= 3 ? '3+' : String(x.deviceCount)) === v);
   }
+  if (path === 'extensions.withAnyDevice') return ex.filter((x) => x.anyDevice);
+  if (path === 'extensions.withNoDevice') return ex.filter((x) => !x.anyDevice);
   if (path === 'transcriptionEnabled') return ex.filter((x) => x.transcription);
   if (path === 'teamsConnected') return ex.filter((x) => x.teams);
   if (path === 'dids.total') return detail.dids;
