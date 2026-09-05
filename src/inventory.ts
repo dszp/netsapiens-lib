@@ -110,7 +110,7 @@ export interface DomainInventoryDetail {
 /** NANP toll-free area codes, 800 through 888. A number outside this set is counted local. */
 const TOLL_FREE = new Set(['800', '833', '844', '855', '866', '877', '888']);
 
-const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
+export const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
 const bump = (into: Record<string, number>, key: string): void => { into[key] = (into[key] ?? 0) + 1; };
 
 /**
@@ -144,7 +144,7 @@ function identityKey(kind: string, id: string, seed: string): string {
 }
 
 /** Is this user one of NetSapiens' internal routing objects rather than a seat? */
-function isSystemUser(user: Rec): boolean {
+export function isSystemUser(user: Rec): boolean {
   return str(user['service-code']).toLowerCase().startsWith('system-');
 }
 

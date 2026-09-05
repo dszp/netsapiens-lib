@@ -31,7 +31,7 @@
  * put an item's KEY (which may be a derived `~hash`) beside its RECORD's routing fields. That
  * invariant is this library's own, and this is the one place allowed to lean on it.
  */
-import { listDomainInventory } from './inventory.js';
+import { isSystemUser, listDomainInventory, str } from './inventory.js';
 import type { Rec, Snapshot } from './model.js';
 
 export interface ItemAttribution {
@@ -42,8 +42,6 @@ export interface ItemAttribution {
 }
 export interface DomainAttribution { items: Record<string, ItemAttribution> }
 
-const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
-const isSystem = (u: Rec): boolean => str(u['service-code']).toLowerCase().startsWith('system-');
 const none = (reason: string): ItemAttribution => ({ site: null, how: `unattributed:${reason}` });
 
 export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution {
@@ -68,7 +66,7 @@ export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution 
     const dest = str(p['dial-rule-translation-destination-user']);
     const u = dest ? userByExt.get(dest) : undefined;
     if (!u) { items[key] = none(`routed-to:${app}`); continue; }
-    if (isSystem(u)) { items[key] = none(`routed-to:${str(u['service-code'])}`); continue; }
+    if (isSystemUser(u)) { items[key] = none(`routed-to:${str(u['service-code'])}`); continue; }
     const site = str(u.site);
     items[key] = site ? { site, how: `via-user:${dest}` } : none('no-site');
   }
@@ -76,7 +74,7 @@ export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution 
   // Addresses, by index against `addresses`; referenced by REAL extensions only.
   const refs = new Map<string, Rec[]>();
   for (const u of users) {
-    if (isSystem(u)) continue;
+    if (isSystemUser(u)) continue;
     const id = str(u['emergency-address-id']);
     if (!id) continue;
     const list = refs.get(id) ?? []; list.push(u); refs.set(id, list);
