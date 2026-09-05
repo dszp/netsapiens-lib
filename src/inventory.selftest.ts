@@ -234,15 +234,21 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   const usersFx: Rec[] = [
     { user: '100', 'name-first-name': 'Ann', 'name-last-name': 'Lee' },
     { user: '701', 'service-code': 'system-queue', 'name-first-name': 'Sales' },
+    { user: '702', 'service-code': 'system-' },
   ];
   const byExt = usersByExt(usersFx);
-  ok(byExt.size === 2, '[usersByExt] one entry per non-blank user');
+  ok(byExt.size === 3, '[usersByExt] one entry per non-blank user');
   const deduped = usersByExt([...usersFx, { user: '100', 'name-first-name': 'Duplicate' }]);
   ok(deduped.get('100')!['name-first-name'] === 'Ann', '[usersByExt] the FIRST record for a repeated extension wins');
 
   ok(destinationOf({ 'dial-rule-translation-destination-user': '100' }, byExt) === 'to user 100 — Ann Lee', '[destinationOf] a real extension names the person');
   ok(destinationOf({ 'dial-rule-translation-destination-user': '701' }, byExt) === 'to queue 701 — Sales', '[destinationOf] a system-queue destination strips the system- prefix and names the queue');
+  ok(destinationOf({ 'dial-rule-translation-destination-user': '702' }, byExt) === 'to system 702', '[destinationOf] a bare "system-" service code has nothing left to strip, so kind falls back to "system" rather than a double space');
   ok(destinationOf({ 'dial-rule-translation-destination-user': '999', 'dial-rule-application': 'to-user' }, byExt) === 'to user 999', '[destinationOf] an unknown destination falls back to the application, to- stripped');
+  ok(
+    destinationOf({ 'dial-rule-translation-destination-user': '999', 'dial-rule-translation-destination-host': 'other.example' }, byExt) === 'to user 999@other.example',
+    '[destinationOf] an unknown destination with a host appends @host',
+  );
   ok(destinationOf({ 'dial-rule-application': 'to-connection' }, byExt) === 'to connection', '[destinationOf] no destination, application only — to- stripped so it does not read "to to-connection"');
   ok(destinationOf({}, byExt) === '', '[destinationOf] neither field set is empty, not "to undefined"');
 }

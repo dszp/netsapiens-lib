@@ -239,7 +239,8 @@ export function usersByExt(users: Rec[]): Map<string, Rec> {
  *   dash and all, when both name fields are blank).
  * - The destination names a SYSTEM user (a queue, an attendant, a time-of-day router) →
  *   `to <kind> <ext> — <name>`, `kind` being the `service-code` with its `system-` prefix stripped
- *   (`queue`, `aa`, `tod`, or the raw code for anything else); name omitted the same way.
+ *   (`queue`, `aa`, `tod`, the raw code for anything else, or `system` when stripping leaves
+ *   nothing — a bare `system-` service code); name omitted the same way.
  * - The destination is set but names nobody NetSapiens knows about → `to <application> <dest>`
  *   (`dial-rule-application` with a leading `to-` stripped, so `to-user` reads as `user`; falls back
  *   to `user` itself when the application is blank), plus `@<host>` whenever
@@ -259,7 +260,7 @@ export function destinationOf(p: Rec, userByExt: Map<string, Rec>): string {
     if (u) {
       const name = `${str(u['name-first-name'])} ${str(u['name-last-name'])}`.trim();
       if (isSystemUser(u)) {
-        const kind = str(u['service-code']).replace(/^system-/i, '');
+        const kind = str(u['service-code']).replace(/^system-/i, '') || 'system';
         return name ? `to ${kind} ${dest} — ${name}` : `to ${kind} ${dest}`;
       }
       return name ? `to user ${dest} — ${name}` : `to user ${dest}`;
