@@ -69,8 +69,9 @@ export interface DomainInventory {
 export interface ExtensionItem {
   /**
    * `ext:<user>` — the stable identity a consumer records a decision against. When `user` is blank
-   * the key falls back to `ext:~<hash>` (see {@link listDomainInventory}), so two nameless records
-   * never collide onto one decision.
+   * the key falls back to `ext:~<hash>` of the remaining fields (see {@link listDomainInventory}),
+   * which keeps two differently-named nameless records apart and deliberately merges two whose
+   * fields are identical.
    */
   key: string;
   ext: string;
@@ -131,6 +132,12 @@ function hash32(s: string): string {
  * identity field would otherwise hand every nameless record of that kind the same key, and a
  * consumer keying decisions by it would accept one record and believe it had accepted all of them.
  * The `~` is what tells a reader the key is derived rather than the system's own id.
+ *
+ * The seed is the record's OWN fields and nothing else — never its position in the array. A key that
+ * depended on position would change under a re-fetch that reordered the list, orphaning every
+ * decision a consumer had recorded against it. The price is that two blank records whose remaining
+ * fields are identical collapse onto ONE key, and that is the right trade: a number with no number
+ * is not a countable thing, and one derived row is more honest than two that shuffle.
  */
 function identityKey(kind: string, id: string, seed: string): string {
   return id ? `${kind}:${id}` : `${kind}:~${hash32(seed)}`;
@@ -158,7 +165,7 @@ function aorLocal(device: Rec): string {
   return at === -1 ? a : a.slice(0, at);
 }
 
-function extensionItem(u: Rec, devices: Rec[], index: number): ExtensionItem {
+function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
   const ext = str(u.user);
   // The Teams test is `<ext>t`, so a blank ext would read every device whose aor local part is a
   // bare `t` as a connector. No extension number, no Teams claim.
@@ -169,7 +176,7 @@ function extensionItem(u: Rec, devices: Rec[], index: number): ExtensionItem {
   const scope = str(u['user-scope']);
   const serviceCode = str(u['service-code']);
   return {
-    key: identityKey('ext', ext, `${scope} ${serviceCode} ${name} ${index}`),
+    key: identityKey('ext', ext, `${scope}\u0000${serviceCode}\u0000${name}`),
     ext,
     name,
     site: str(u.site),
@@ -195,11 +202,12 @@ function extensionItem(u: Rec, devices: Rec[], index: number): ExtensionItem {
  * `addr:a-1`, `sms:13175550100`. NetSapiens will hand back a record whose id is blank, and a key of
  * `addr:` shared by two records is worse than no key: a consumer recording an acceptance against it
  * accepts both. So a blank id falls back to `<kind>:~<hash>`, an FNV-1a over whatever else names the
- * record — an address by its name, street line and city; an extension by scope, service code, name
- * and position; a number or SMS number by its position alone, because two blank numbers are
- * indistinguishable from each other by anything but where they sat in the list. Position makes those
- * keys stable for one snapshot, not across a re-fetch that reorders the array; a blank id is a
- * provisioning fault to fix, and the fallback only keeps two of them apart until it is.
+ * record — an address by its name, street line and city; an extension by scope, service code and
+ * name; a number or SMS number by the (blank) number itself. No seed carries the array index, so a
+ * re-fetch that reorders the list returns the same keys. Two blank records that agree on every
+ * remaining field therefore land on ONE key rather than two: a number with no number is not a
+ * countable thing, and one derived row is more honest than two that shuffle. A blank id is a
+ * provisioning fault to fix; the fallback only keeps the distinguishable ones apart until it is.
  */
 export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
   const users: Rec[] = Array.isArray(snapshot.users) ? snapshot.users : [];
@@ -213,17 +221,19 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
   for (let i = 0; i < users.length; i++) {
     const u = users[i]!;
     const ext = str(u.user);
-    // A blank `user` is looked up too, rather than handed an empty device list: NetSapiens files a
-    // nameless user's devices under `''`, and dropping them reads as a clean match on a domain that
-    // has handsets nobody can see. Two blank users would share that list and overcount — a visible
-    // drift the operator investigates, which is the failure worth having.
-    const item = extensionItem(u, devicesByUser[ext] ?? [], i);
+    // A blank `user` is looked up too, rather than handed an empty device list. This library's own
+    // `fetchDomainSnapshot` never files anything under `''` — it skips a blank extension before the
+    // device read (see `nsClient.ts`) — so this lookup can only hit in a snapshot built elsewhere,
+    // from a backup or a fixture. Dropping it would read as a clean match on a domain that has
+    // handsets nobody can see; two blank users sharing one list overcount instead, which is a
+    // visible drift an operator investigates, and that is the failure worth having.
+    const item = extensionItem(u, devicesByUser[ext] ?? []);
     (isSystemUser(u) ? systemUsers : extensions).push(item);
   }
-  const dids: NumberItem[] = phonenumbers.map((p, i) => {
+  const dids: NumberItem[] = phonenumbers.map((p) => {
     const number = str(p.phonenumber);
     const kind: 'local' | 'tollFree' = isTollFree(number) ? 'tollFree' : 'local';
-    return { key: identityKey('did', number, `${JSON.stringify({ number, kind })} ${i}`), number, kind };
+    return { key: identityKey('did', number, JSON.stringify({ number, kind })), number, kind };
   });
   const e911Addresses: AddressItem[] = addresses.map((a, i) => {
     const id = str(a['emergency-address-id']);
@@ -239,9 +249,9 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
       label: label || id || `(address ${i + 1})`,
     };
   });
-  const smsNumbers: SmsItem[] = smsnumbers.map((s, i) => {
+  const smsNumbers: SmsItem[] = smsnumbers.map((s) => {
     const number = str(s.number);
-    return { key: identityKey('sms', number, `${JSON.stringify({ number })} ${i}`), number };
+    return { key: identityKey('sms', number, JSON.stringify({ number })), number };
   });
   return { extensions, systemUsers, dids, e911Addresses, smsNumbers };
 }

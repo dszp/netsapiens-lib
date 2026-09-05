@@ -5,6 +5,18 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-09-04
+
+### Fixed
+
+- **A derived inventory item key no longer depends on array order.** `listDomainInventory`'s
+  `<kind>:~<hash>` fallback — the key a record gets when its own identity field is blank — seeded the
+  hash with the record's index for `ext`, `did` and `sms`, so a re-fetch that returned the same
+  records in a different order handed them different keys and orphaned every decision a consumer had
+  recorded against them. The seeds are now the record's own fields only. Two blank records whose
+  remaining fields are identical consequently collapse onto one key: a number with no number is not a
+  countable thing, and one derived row is more honest than two that shuffle.
+
 ## [0.3.0] — 2026-09-04
 
 ### Added

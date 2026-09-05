@@ -180,18 +180,33 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
 
   const [n0, n1] = d.dids;
   ok(n0!.key.startsWith('did:~'), '[blank] a blank number falls back to did:~<hash>');
-  ok(n0!.key !== n1!.key, '[blank] two blank numbers are told apart by position, since nothing else differs');
+  ok(n0!.key === n1!.key, '[blank] two blank numbers share one derived key: nothing distinguishes them');
   ok(n0!.key === again.dids[0]!.key, '[blank] and that key is stable across two calls');
 
   const [s0, s1] = d.smsNumbers;
   ok(s0!.key.startsWith('sms:~'), '[blank] a blank SMS number falls back to sms:~<hash>');
-  ok(s0!.key !== s1!.key, '[blank] two blank SMS numbers get different keys');
+  ok(s0!.key === s1!.key, '[blank] and two blank SMS numbers do the same');
 
   const x = d.extensions[0]!;
   ok(x.key.startsWith('ext:~'), '[blank] a blank user falls back to ext:~<hash>');
   ok(x.teams === false, '[blank] and a bare `t` aor is not a Teams connector without an extension number to match');
   ok(x.deviceCount === 1, '[blank] that device is counted as a handset rather than dropped');
   ok(x.key === again.extensions[0]!.key, '[blank] the extension key is stable across two calls');
+}
+
+// ── a derived key does not depend on where the record sat in the array ───────────────────────────────
+{
+  const numbers = [
+    { phonenumber: '' },
+    { phonenumber: '13175550100' },
+    { phonenumber: '' , 'dial-rule-application': 'to-user' },
+  ];
+  const forward = listDomainInventory({ meta: { domain: 'order.example' }, phonenumbers: numbers } as Snapshot);
+  const reversed = listDomainInventory({ meta: { domain: 'order.example' }, phonenumbers: [...numbers].reverse() } as Snapshot);
+  const derived = (d: ReturnType<typeof listDomainInventory>) =>
+    d.dids.map((n) => n.key).filter((k) => k.startsWith('did:~')).sort().join(',');
+  ok(derived(forward) !== '', '[order] the fixture really does produce derived keys');
+  ok(derived(forward) === derived(reversed), '[order] reversing the phonenumbers array leaves the did:~ keys unchanged');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
