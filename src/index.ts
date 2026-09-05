@@ -37,7 +37,7 @@ export {
 } from './html.js';
 export { resolveSvgSize, rasterizerScript } from './raster.js';
 export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
-export { countDomainInventory, countInventoryDetail, listDomainInventory, itemsFor, itemLabel, type DomainInventory, type DomainInventoryDetail, type ExtensionItem, type NumberItem, type AddressItem, type SmsItem, type InventoryItem } from './inventory.js';
+export { countDomainInventory, countInventoryDetail, listDomainInventory, itemsFor, itemLabel, destinationOf, usersByExt, type DomainInventory, type DomainInventoryDetail, type ExtensionItem, type NumberItem, type AddressItem, type SmsItem, type InventoryItem } from './inventory.js';
 export { attributeDomainInventory, type DomainAttribution, type ItemAttribution } from './attribution.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';
 export {

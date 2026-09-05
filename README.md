@@ -131,6 +131,12 @@ never appear, though names and sites now do (that's the point of a list). Each i
 | `e911Addresses` | `addr:<emergency-address-id>` |
 | `smsNumbers` | `sms:<number>` |
 
+A number carries `destination` — where it routes, in words (`to user 100 — Ann Lee`, `to queue 701 —
+Sales`), built by the exported `destinationOf(p, userByExt)` over `usersByExt(users)` — and `description`
+(`dial-rule-description`, trimmed); an extension carries `devices`, an `{ name, model, teams }` per
+device it has (handset and Teams connector alike), in record order — still never the MAC, SIP password
+or email.
+
 `itemsFor(detail, path)` returns the items behind one of `countDomainInventory`'s dotted-path counts —
 the same vocabulary, so a UI that lets an operator drill from a count into the records behind it needs
 no separate lookup table:
