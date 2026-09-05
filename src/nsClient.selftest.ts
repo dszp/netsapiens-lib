@@ -185,6 +185,33 @@ const ok = (c: boolean, msg: string) => {
     ok(!seen.some((p) => p.endsWith('/users/700/smsnumbers')), 'system users are not read');
     const plain = await fetchDomainSnapshot(client, 'acme.example', { includeAttendantMenus: false });
     ok(plain.smsNumbersByUser === undefined && plain.smsReadFailures === undefined, 'without the option neither field is present');
+
+    // PRESENT AND EMPTY when every read answered — the same contract deviceReadFailures has, and the
+    // distinction a consumer needs: absent means nobody asked, empty means nothing failed. An absent
+    // field read as "nothing failed" would be a page claiming a clean read it never performed.
+    const allOk = { get: async (p: string) => {
+      if (p.endsWith('/users')) return [{ user: '100', 'service-code': '' }];
+      if (p.endsWith('/users/100/smsnumbers')) return [{ number: '13175550100' }];
+      if (/\/domains\/[^/]+$/.test(p)) return [{ domain: 'acme.example' }];
+      return [];
+    } } as unknown as NsClient;
+    const clean = await fetchDomainSnapshot(allOk, 'acme.example', { includeAttendantMenus: false, includeUserSmsNumbers: true });
+    ok(Array.isArray(clean.smsReadFailures) && clean.smsReadFailures.length === 0,
+      'no failures - smsReadFailures is an empty array, not absent');
+
+    // SORTED, not in completion order. These fill under mapLimit, so the fixture makes the FIRST-sorting
+    // extension answer last; an unsorted list would come back ['101','100'] and the panel that prints it
+    // would reshuffle between two reads of the same broken domain.
+    const twoFails = { get: async (p: string) => {
+      if (p.endsWith('/users')) return [{ user: '100', 'service-code': '' }, { user: '101', 'service-code': '' }];
+      if (p.endsWith('/users/100/smsnumbers')) { await new Promise((r) => setTimeout(r, 10)); throw new NsApiError('GET .../smsnumbers → 500', 500, p, null); }
+      if (p.endsWith('/users/101/smsnumbers')) throw new NsApiError('GET .../smsnumbers → 500', 500, p, null);
+      if (/\/domains\/[^/]+$/.test(p)) return [{ domain: 'acme.example' }];
+      return [];
+    } } as unknown as NsClient;
+    const sorted = await fetchDomainSnapshot(twoFails, 'acme.example', { includeAttendantMenus: false, includeUserSmsNumbers: true });
+    ok(JSON.stringify(sorted.smsReadFailures) === JSON.stringify(['100', '101']),
+      'two failures come back sorted, whichever order they completed in');
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

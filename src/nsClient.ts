@@ -264,6 +264,10 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
       });
       if (devs.length) devicesByUser![ext] = devs;
     });
+    // SORTED before it leaves. These fill under `mapLimit`, so the order is whichever read failed first —
+    // a list that reshuffles between two reads of the same broken domain reads as data that changed, and a
+    // consumer prints this straight at an operator.
+    deviceReadFailures.sort();
   }
 
   // Per-user SMS numbers, same shape and reason as devices above: the domain-level list (see
@@ -283,6 +287,7 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
       });
       if (list.length) smsNumbersByUser![ext] = list;
     });
+    smsReadFailures.sort();   // same reason as deviceReadFailures above
   }
 
   const answerrulesByUser: Record<string, Rec[]> = {};

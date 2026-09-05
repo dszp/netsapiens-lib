@@ -11,7 +11,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `attributeDomainInventory(snapshot)`: which site each inventory item belongs to (`own-site`, `via-user:<ext>`, `via-users:<exts>`) or why it cannot be placed (`unattributed:no-site|routed-to:<x>|shared-across:<sites>|unreferenced|sms-user-unknown`). Pure; no account knowledge.
 - `countInventoryDetail(detail)`: count a filtered item list, so a consumer scoping a domain to one site or one billing account gets counts that agree with what it kept.
-- `fetchDomainSnapshot(..., { includeUserSmsNumbers: true })` → `snapshot.smsNumbersByUser` and `snapshot.smsReadFailures`, one read per real extension.
+- `fetchDomainSnapshot(..., { includeUserSmsNumbers: true })` → `snapshot.smsNumbersByUser` and `snapshot.smsReadFailures`, one read per real extension. `smsReadFailures` and `deviceReadFailures` are both **sorted** before they are returned: they fill under concurrency, and a consumer that prints them at an operator would otherwise reshuffle the same list between two reads.
 
 ## [0.3.1] — 2026-09-04
 
