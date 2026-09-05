@@ -5,6 +5,20 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.6.0 — 2026-09-05
+
+### Changed
+
+- `attributeDomainInventory`: an E911 address now carries **every** site a real extension referencing it sits on, in the new `ItemAttribution.sites`. An address is a fact about a place, and a domain split between accounts can have four sites legitimately referencing one address; placing it on a single account left every other referencing account's E911 line short. `site` is unchanged in meaning — the single site when there is exactly one, `null` otherwise — so a consumer reading only `site` still reads the unambiguous case correctly.
+
+### Added
+
+- `ItemAttribution.sites`: every site the item belongs to, unique and sorted. One entry wherever `site` is set, none where nothing placed it. Only an address can hold more than one.
+
+### Removed
+
+- The `unattributed:shared-across:<sites>` reason. A multi-site address is now attributed as `via-users:<exts>` with several `sites`, because it is placed rather than unplaceable. A consumer matching on that string must read `sites.length > 1` instead.
+
 ## 0.5.0 — 2026-09-05
 
 ### Changed

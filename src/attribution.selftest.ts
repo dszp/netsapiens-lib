@@ -49,9 +49,30 @@ ok(a['did:13175550102']!.site === null && a['did:13175550102']!.how === 'unattri
 ok(a['did:13175550103']!.site === null && a['did:13175550103']!.how === 'unattributed:no-site', 'a number routed to a site-less user is no-site, not routed-to');
 ok(a['did:13175550104']!.site === null && a['did:13175550104']!.how === 'unattributed:routed-to:to-user', 'a number whose destination user does not exist falls back to the application name');
 
-ok(a['addr:a-1']!.site === null && a['addr:a-1']!.how === 'unattributed:shared-across:North,South', 'an address referenced from two sites is shared, sites sorted');
-ok(a['addr:a-2']!.site === 'South' && a['addr:a-2']!.how === 'via-users:102', 'an address referenced from one site follows it and names the users');
-ok(a['addr:a-3']!.site === null && a['addr:a-3']!.how === 'unattributed:unreferenced', 'an address nobody references is unreferenced');
+ok(a['addr:a-1']!.site === null && JSON.stringify(a['addr:a-1']!.sites) === JSON.stringify(['North', 'South']) && a['addr:a-1']!.how === 'via-users:100,101',
+  'an address referenced from two sites carries BOTH, sorted, with no single site and no shared-across reason');
+ok(a['addr:a-2']!.site === 'South' && JSON.stringify(a['addr:a-2']!.sites) === JSON.stringify(['South']) && a['addr:a-2']!.how === 'via-users:102', 'an address referenced from one site follows it and names the users');
+ok(a['addr:a-3']!.site === null && a['addr:a-3']!.sites.length === 0 && a['addr:a-3']!.how === 'unattributed:unreferenced', 'an address nobody references is unreferenced');
+
+// `sites` is the list form of `site` for every kind that has exactly one, so a consumer can read the
+// one field and never branch on the kind.
+ok(JSON.stringify(a['ext:100']!.sites) === JSON.stringify(['North']), 'an extension carries its own site as a one-entry list');
+ok(a['ext:103']!.sites.length === 0, 'and a site-less one carries an empty list');
+ok(JSON.stringify(a['did:13175550100']!.sites) === JSON.stringify(['North']), 'a number carries the site it inherited');
+ok(a['did:13175550102']!.sites.length === 0, 'and an unattributed number carries none');
+ok(JSON.stringify(a['sms:13175550100']!.sites) === JSON.stringify(['North']), 'an SMS number carries the site of the user it is enabled on');
+ok(a['sms:13175550199']!.sites.length === 0, 'and an unknown one carries none');
+ok(Object.values(a).every((v) => JSON.stringify(v.sites) === JSON.stringify([...new Set(v.sites)].sort())), 'every sites list is unique and sorted');
+ok(Object.values(a).every((v) => (v.site === null ? true : v.sites.length === 1 && v.sites[0] === v.site)), 'a single site is exactly the one-entry list, and never disagrees with it');
+
+// An address whose referencing users have no site at all: still unattributed, and the reason says why.
+const noSiteAddr = attributeDomainInventory({
+  ...snap,
+  users: [{ user: '104', site: '', 'service-code': '', 'emergency-address-id': 'a-4' }],
+  addresses: [{ 'emergency-address-id': 'a-4' }],
+}).items;
+ok(noSiteAddr['addr:a-4']!.how === 'unattributed:no-site' && noSiteAddr['addr:a-4']!.sites.length === 0,
+  'an address whose referencing users have no site is no-site, with no sites to name');
 
 ok(a['sms:13175550100']!.site === 'North' && a['sms:13175550100']!.how === 'via-user:100', 'an SMS number follows the user it is enabled on');
 ok(a['sms:13175550102']!.site === null && a['sms:13175550102']!.how === 'unattributed:no-site', 'an SMS number on a site-less user is no-site');

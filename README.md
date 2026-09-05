@@ -172,9 +172,17 @@ against one of them needs to know which inventory items are actually its own. `a
 answers that: it's pure (no account knowledge, just the snapshot) and labels every extension, number,
 address and SMS number either `own-site` (the item's own site matches), `via-user:<ext>` /
 `via-users:<exts>` (it's reachable only through another item that has a site), or an
-`unattributed:<reason>` — `no-site`, `routed-to:<x>`, `shared-across:<sites>`, `unreferenced`, or
+`unattributed:<reason>` — `no-site`, `routed-to:<x>`, `unreferenced`, or
 `sms-user-unknown` when a domain-level SMS number can't be matched to a user because the snapshot was
-never fetched with `includeUserSmsNumbers`. Filter `listDomainInventory(snapshot)`'s items by that
+never fetched with `includeUserSmsNumbers`.
+
+Each verdict carries **`sites: string[]`** as well as `site`. They agree wherever there is one site,
+and only an **E911 address** can carry more than one: an address is a fact about a place, and users on
+four sites can all reference it, so `sites` names every one of them while `site` stays `null`. A
+consumer splitting a domain between billing accounts should read `sites` — placing such an address on
+exactly one account leaves every other referencing account's E911 line short.
+
+Filter `listDomainInventory(snapshot)`'s items by that
 attribution to scope a domain down to one site, then run `countInventoryDetail(detail)` over what's left
 to get counts that agree with what you kept, rather than recomputing `countDomainInventory` against the
 whole domain and hoping the numbers happen to match.
