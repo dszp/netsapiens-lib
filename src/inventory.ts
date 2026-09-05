@@ -4,11 +4,13 @@
  * Pure: it fetches nothing. Feed it a `Snapshot` — from `fetchDomainSnapshot`, a backup, or a
  * fixture — and it returns fixed, named counts and nothing else.
  *
- * ## Why counts and not records
+ * ## Counts, and the lists behind them
  *
- * A device record from NetSapiens carries the SIP registration password. This function deliberately
- * returns only totals and model names, so a consumer that shows inventory to an operator cannot
- * accidentally show a credential. Nothing here returns a record, and nothing should be added that does.
+ * A device record from NetSapiens carries the SIP registration password. `listDomainInventory` builds
+ * per-item lists — an extension's name and site, a number's kind, an address's label — from an
+ * allowlist of named fields, and `countDomainInventory` is a fold over those same lists. Either way, a
+ * device's MAC and SIP credentials never appear: nothing here returns a raw record, and nothing should
+ * be added that does.
  *
  * ## Every countable dimension is a numeric leaf
  *
@@ -30,10 +32,7 @@ export interface DomainInventory {
     total: number;
     /** Keyed by the raw `user-scope` value, e.g. "Basic User". */
     byScope: Record<string, number>;
-    /**
-     * Keyed by the raw `service-code`, the empty string included — so a deployment that starts
-     * tagging seat type into `service-code` needs no change here to be counted by it.
-     */
+    /** Keyed by the raw `service-code`, the empty string included. */
     byServiceCode: Record<string, number>;
     /** Multi-device extensions are a real billing shape (a restaurant with four handsets on one seat). */
     byDeviceCount: Record<'0' | '1' | '2' | '3+', number>;
@@ -42,6 +41,12 @@ export interface DomainInventory {
   systemUsers: { total: number; byServiceCode: Record<string, number> };
   /** Extensions whose `voicemail-transcription-enabled` is anything but empty or `no`. */
   transcriptionEnabled: number;
+  /**
+   * Extensions with a Microsoft Teams connector device — one whose SIP `aor` local part is the
+   * extension number followed by `t` (`1000t`), which is how the TeamMate connector registers.
+   * That device is NOT counted under `devices`: it is a connector, not a handset.
+   */
+  teamsConnected: number;
   /** Phone numbers on the domain, split by NANP toll-free prefix. */
   dids: { total: number; tollFree: number; local: number };
   /** E911 address records on the domain. */
@@ -50,6 +55,45 @@ export interface DomainInventory {
   smsNumbers: number;
   /** Devices belonging to real extensions only — a system user's device is not a seat. */
   devices: { total: number; byModel: Record<string, number> };
+}
+
+/**
+ * One extension, as a billing consumer may see it. An allowlist, not a record: name, site and the
+ * device MODELS are here; the MAC, the SIP credentials and the email are not, and nothing here should
+ * be added that carries one.
+ */
+export interface ExtensionItem {
+  /** `ext:<user>` — the stable identity a consumer records a decision against. */
+  key: string;
+  ext: string;
+  /** `name-first-name` + `name-last-name`, trimmed; `''` when both are blank. */
+  name: string;
+  /** The user's `site`; `''` when none. */
+  site: string;
+  scope: string;
+  /** `service-code`, `''` included. */
+  serviceCode: string;
+  transcription: boolean;
+  /** See {@link DomainInventory.teamsConnected}. */
+  teams: boolean;
+  /** Handsets only — the Teams connector is excluded. */
+  deviceCount: number;
+  /** `device-models-model` per handset, `(unknown)` when blank. Never the MAC. */
+  deviceModels: string[];
+}
+export interface NumberItem { key: string /* did:<phonenumber> */; number: string; kind: 'local' | 'tollFree' }
+export interface AddressItem { key: string /* addr:<emergency-address-id> */; label: string }
+export interface SmsItem { key: string /* sms:<number> */; number: string }
+export type InventoryItem = ExtensionItem | NumberItem | AddressItem | SmsItem;
+
+export interface DomainInventoryDetail {
+  /** Real seats only, same rule as the count. */
+  extensions: ExtensionItem[];
+  /** Informational, never compared. */
+  systemUsers: ExtensionItem[];
+  dids: NumberItem[];
+  e911Addresses: AddressItem[];
+  smsNumbers: SmsItem[];
 }
 
 /** NANP toll-free area codes, 800 through 888. A number outside this set is counted local. */
@@ -73,51 +117,126 @@ function isTollFree(raw: string): boolean {
   return nanp.length === 10 && TOLL_FREE.has(nanp.slice(0, 3));
 }
 
-export function countDomainInventory(snapshot: Snapshot): DomainInventory {
+/** The local part of a device's `aor` (`sip:103t@acme.example` → `103t`), read only to test for Teams. */
+function aorLocal(device: Rec): string {
+  const a = str(device.aor).replace(/^sip:/i, '');
+  const at = a.indexOf('@');
+  return at === -1 ? a : a.slice(0, at);
+}
+
+function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
+  const ext = str(u.user);
+  const handsets = devices.filter((d) => aorLocal(d) !== `${ext}t`);
+  const transcription = str(u['voicemail-transcription-enabled']).toLowerCase();
+  return {
+    key: `ext:${ext}`,
+    ext,
+    name: `${str(u['name-first-name'])} ${str(u['name-last-name'])}`.trim(),
+    site: str(u.site),
+    scope: str(u['user-scope']),
+    serviceCode: str(u['service-code']),
+    transcription: transcription !== '' && transcription !== 'no',
+    teams: handsets.length !== devices.length,
+    deviceCount: handsets.length,
+    // A device whose model is blank is listed under a named bucket rather than dropped: a missing
+    // model is a provisioning gap worth seeing, and a silently smaller total hides it.
+    deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
+  };
+}
+
+/**
+ * The items behind every count. Pure. Fields are copied by name from an allowlist; no record passes
+ * through, so a device's MAC or SIP password cannot reach a consumer by accident.
+ */
+export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
   const users: Rec[] = Array.isArray(snapshot.users) ? snapshot.users : [];
   const devicesByUser: Record<string, Rec[]> = (snapshot.devicesByUser ?? {}) as Record<string, Rec[]>;
   const phonenumbers: Rec[] = Array.isArray(snapshot.phonenumbers) ? snapshot.phonenumbers : [];
   const addresses: Rec[] = Array.isArray(snapshot.addresses) ? snapshot.addresses : [];
   const smsnumbers: Rec[] = Array.isArray(snapshot.smsnumbers) ? snapshot.smsnumbers : [];
 
-  const inv: DomainInventory = {
-    extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 } },
-    systemUsers: { total: 0, byServiceCode: {} },
-    transcriptionEnabled: 0,
-    dids: { total: phonenumbers.length, tollFree: 0, local: 0 },
-    e911Addresses: addresses.length,
-    smsNumbers: smsnumbers.length,
-    devices: { total: 0, byModel: {} },
-  };
-
+  const extensions: ExtensionItem[] = [];
+  const systemUsers: ExtensionItem[] = [];
   for (const u of users) {
     const ext = str(u.user);
-    if (isSystemUser(u)) {
-      inv.systemUsers.total++;
-      bump(inv.systemUsers.byServiceCode, str(u['service-code']));
-      continue;
-    }
+    const item = extensionItem(u, ext ? (devicesByUser[ext] ?? []) : []);
+    (isSystemUser(u) ? systemUsers : extensions).push(item);
+  }
+  const dids: NumberItem[] = phonenumbers.map((p) => {
+    const number = str(p.phonenumber);
+    return { key: `did:${number}`, number, kind: isTollFree(number) ? 'tollFree' : 'local' };
+  });
+  const e911Addresses: AddressItem[] = addresses.map((a) => {
+    const id = str(a['emergency-address-id']);
+    const name = str(a['address-name']);
+    const where = [str(a['address-line-1']), str(a['address-city'])].filter(Boolean).join(', ');
+    const label = [name, where].filter(Boolean).join(' — ');
+    return { key: `addr:${id}`, label: label || id };
+  });
+  const smsNumbers: SmsItem[] = smsnumbers.map((s) => { const number = str(s.number); return { key: `sms:${number}`, number }; });
+  return { extensions, systemUsers, dids, e911Addresses, smsNumbers };
+}
+
+/** The counts, as a fold over {@link listDomainInventory} so the two can never disagree. */
+export function countDomainInventory(snapshot: Snapshot): DomainInventory {
+  const d = listDomainInventory(snapshot);
+  const inv: DomainInventory = {
+    extensions: { total: 0, byScope: {}, byServiceCode: {}, byDeviceCount: { '0': 0, '1': 0, '2': 0, '3+': 0 } },
+    systemUsers: { total: d.systemUsers.length, byServiceCode: {} },
+    transcriptionEnabled: 0,
+    teamsConnected: 0,
+    dids: { total: d.dids.length, tollFree: 0, local: 0 },
+    e911Addresses: d.e911Addresses.length,
+    smsNumbers: d.smsNumbers.length,
+    devices: { total: 0, byModel: {} },
+  };
+  for (const s of d.systemUsers) bump(inv.systemUsers.byServiceCode, s.serviceCode);
+  for (const x of d.extensions) {
     inv.extensions.total++;
-    const scope = str(u['user-scope']);
-    if (scope) bump(inv.extensions.byScope, scope);
-    bump(inv.extensions.byServiceCode, str(u['service-code']));
-
-    const transcription = str(u['voicemail-transcription-enabled']).toLowerCase();
-    if (transcription !== '' && transcription !== 'no') inv.transcriptionEnabled++;
-
-    const devices = ext ? (devicesByUser[ext] ?? []) : [];
-    const bucket = devices.length >= 3 ? '3+' : (String(devices.length) as '0' | '1' | '2');
+    if (x.scope) bump(inv.extensions.byScope, x.scope);
+    bump(inv.extensions.byServiceCode, x.serviceCode);
+    if (x.transcription) inv.transcriptionEnabled++;
+    if (x.teams) inv.teamsConnected++;
+    const bucket = x.deviceCount >= 3 ? '3+' : (String(x.deviceCount) as '0' | '1' | '2');
     inv.extensions.byDeviceCount[bucket]++;
-    inv.devices.total += devices.length;
-    // A device whose model is blank is counted under a named bucket rather than dropped: a missing
-    // model is a provisioning gap worth seeing, and a silently smaller total hides it.
-    for (const d of devices) bump(inv.devices.byModel, str(d['device-models-model']) || '(unknown)');
+    inv.devices.total += x.deviceCount;
+    for (const m of x.deviceModels) bump(inv.devices.byModel, m);
   }
-
-  for (const p of phonenumbers) {
-    if (isTollFree(str(p.phonenumber))) inv.dids.tollFree++;
-    else inv.dids.local++;
-  }
-
+  for (const n of d.dids) { if (n.kind === 'tollFree') inv.dids.tollFree++; else inv.dids.local++; }
   return inv;
+}
+
+/**
+ * The items a `counts` path selects — the same vocabulary of dotted paths `countDomainInventory`
+ * answers numbers for. `undefined` means that dimension has no item list (devices, system users, or a
+ * path this module does not know), which is a different fact from an empty list.
+ */
+export function itemsFor(detail: DomainInventoryDetail, path: string): InventoryItem[] | undefined {
+  const ex = detail.extensions;
+  if (path === 'extensions.total') return ex;
+  if (path.startsWith('extensions.byScope.')) { const v = path.slice('extensions.byScope.'.length); return ex.filter((x) => x.scope === v); }
+  if (path.startsWith('extensions.byServiceCode.')) { const v = path.slice('extensions.byServiceCode.'.length); return ex.filter((x) => x.serviceCode === v); }
+  if (path.startsWith('extensions.byDeviceCount.')) {
+    const v = path.slice('extensions.byDeviceCount.'.length);
+    return ex.filter((x) => (x.deviceCount >= 3 ? '3+' : String(x.deviceCount)) === v);
+  }
+  if (path === 'transcriptionEnabled') return ex.filter((x) => x.transcription);
+  if (path === 'teamsConnected') return ex.filter((x) => x.teams);
+  if (path === 'dids.total') return detail.dids;
+  if (path === 'dids.tollFree') return detail.dids.filter((n) => n.kind === 'tollFree');
+  if (path === 'dids.local') return detail.dids.filter((n) => n.kind === 'local');
+  if (path === 'e911Addresses') return detail.e911Addresses;
+  if (path === 'smsNumbers') return detail.smsNumbers;
+  return undefined;
+}
+
+/** One line naming an item to a person: what an operator sees when they accept it, and what history keeps. */
+export function itemLabel(item: InventoryItem): string {
+  if ('ext' in item) {
+    const who = [item.name, item.site].filter(Boolean).join(', ');
+    return who ? `${item.ext} — ${who}` : item.ext;
+  }
+  if ('kind' in item) return item.kind === 'tollFree' ? `${item.number} (toll-free)` : item.number;
+  if ('label' in item) return item.label;
+  return item.number;
 }

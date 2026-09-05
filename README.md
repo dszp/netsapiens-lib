@@ -78,6 +78,8 @@ VoIP operator actually sells on:
 - `systemUsers` — `system-aa`, `system-queue`, `system-tod` and friends: `total` and `byServiceCode`.
   Informational, never compared against a seat count.
 - `transcriptionEnabled` — extensions with voicemail transcription on.
+- `teamsConnected` — extensions with a Microsoft Teams connector device (SIP `aor` local part
+  `<ext>t`). That connector is excluded from `devices`/`deviceCount`: it is a connector, not a handset.
 - `dids` — phone numbers, `total` / `tollFree` / `local`.
 - `e911Addresses`, `smsNumbers` — record counts.
 - `devices` — `total` and `byModel`, real extensions only (a system user's device is not a seat).
@@ -100,6 +102,50 @@ const snapshot = await fetchDomainSnapshot(client, 'acme.example', {
 const inventory = countDomainInventory(snapshot);
 inventory.dids.tollFree;      // e.g. 3
 inventory.devices.byModel;    // e.g. { "Yealink T54W": 12, "(unknown)": 1 }
+```
+
+#### Listing a domain: `listDomainInventory`
+
+`countDomainInventory` is a fold over `listDomainInventory(snapshot)`, which returns the per-item lists
+behind those counts — for anything that shows an operator *which* extension or number a count refers to,
+not just how many. Same allowlist discipline as the counts: a device's MAC, SIP credentials and email
+never appear, though names and sites now do (that's the point of a list). Each item carries a stable
+`key`:
+
+| List | Item key |
+|---|---|
+| `extensions`, `systemUsers` | `ext:<user>` |
+| `dids` | `did:<phonenumber>` |
+| `e911Addresses` | `addr:<emergency-address-id>` |
+| `smsNumbers` | `sms:<number>` |
+
+`itemsFor(detail, path)` returns the items behind one of `countDomainInventory`'s dotted-path counts —
+the same vocabulary, so a UI that lets an operator drill from a count into the records behind it needs
+no separate lookup table:
+
+| Path | Items |
+|---|---|
+| `extensions.total` | every extension |
+| `extensions.byScope.<scope>` | extensions with that `user-scope` |
+| `extensions.byServiceCode.<code>` | extensions with that `service-code` (`extensions.byServiceCode.` selects the empty code) |
+| `extensions.byDeviceCount.<0\|1\|2\|3+>` | extensions in that device-count bucket |
+| `transcriptionEnabled` | extensions with transcription on |
+| `teamsConnected` | extensions with a Teams connector |
+| `dids.total` / `dids.tollFree` / `dids.local` | phone numbers |
+| `e911Addresses` | E911 addresses |
+| `smsNumbers` | SMS numbers |
+
+`devices.*` and `systemUsers.*` paths return `undefined` — not `[]` — because there is no item list for
+them (devices aren't compared individually; system users are informational, never compared). An
+unrecognized path also returns `undefined`. `itemLabel(item)` gives one display line for any item, for
+an operator-facing accept/reject list:
+
+```ts
+import { listDomainInventory, itemsFor, itemLabel } from '@dszp/netsapiens-lib';
+
+const detail = listDomainInventory(snapshot);
+const premium = itemsFor(detail, 'extensions.byServiceCode.premium') ?? [];
+premium.map(itemLabel); // e.g. ["101 — Jane Doe, North", "102"]
 ```
 
 ### Read/write split by charter

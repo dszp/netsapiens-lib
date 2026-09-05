@@ -1,5 +1,5 @@
 /** Offline test for the domain inventory counter. pnpm test:inventory */
-import { countDomainInventory } from './inventory.js';
+import { countDomainInventory, listDomainInventory, itemsFor, itemLabel } from './inventory.js';
 import type { Snapshot } from './model.js';
 
 let pass = 0, fail = 0;
@@ -8,7 +8,7 @@ const ok = (c: boolean, m: string) => { c ? pass++ : fail++; console.log(`${c ? 
 const snap: Snapshot = {
   meta: { domain: 'acme.example' },
   users: [
-    { user: '100', 'user-scope': 'Basic User', 'service-code': '', 'voicemail-transcription-enabled': 'no' },
+    { user: '100', 'user-scope': 'Basic User', 'service-code': '', 'voicemail-transcription-enabled': 'no', 'name-first-name': 'Ann', 'name-last-name': 'Lee', site: 'North' },
     { user: '101', 'user-scope': 'Basic User', 'service-code': 'premium', 'voicemail-transcription-enabled': 'yes' },
     { user: '102', 'user-scope': 'Office Manager', 'service-code': 'premium', 'voicemail-transcription-enabled': 'voicebase' },
     { user: '103', 'user-scope': 'Basic User', 'service-code': '' },
@@ -24,12 +24,16 @@ const snap: Snapshot = {
       { aor: 'sip:101c@acme.example', 'device-models-model': '' },
     ],
     '102': [{ aor: 'sip:102@acme.example', 'device-models-model': 'Yealink T31P' }],
+    '103': [{ aor: 'sip:103t@acme.example', 'device-models-model': 'Teams' }],
   },
   phonenumbers: [
     { phonenumber: '13175550100' }, { phonenumber: '13175550101' },
     { phonenumber: '18005550102' }, { phonenumber: '18335550103' },
   ],
-  addresses: [{ 'address-id': '1' }, { 'address-id': '2' }],
+  addresses: [
+    { 'emergency-address-id': 'a-1', 'address-name': 'HQ', 'address-line-1': '1 Main St', 'address-city': 'Springfield' },
+    { 'emergency-address-id': 'a-2', 'address-name': 'Annex' },
+  ],
   smsnumbers: [{ number: '13175550100' }],
 } as Snapshot;
 
@@ -74,6 +78,69 @@ const sysDev = countDomainInventory({
   devicesByUser: { '700': [{ aor: 'sip:700@sys.example', 'device-models-model': 'Yealink T54W' }] },
 } as Snapshot);
 ok(sysDev.devices.total === 0, 'a system user device is not counted');
+
+// ── listDomainInventory ─────────────────────────────────────────────────────────────────────────────
+{
+  const d = listDomainInventory(snap);
+  ok(d.extensions.length === 4, '[list] four real extensions');
+  ok(d.systemUsers.length === 3, '[list] three system users, listed apart');
+  const e100 = d.extensions.find((x) => x.ext === '100')!;
+  ok(e100.key === 'ext:100', '[list] an extension key is ext:<user>');
+  ok(e100.name === 'Ann Lee', '[list] name is first + last');
+  ok(e100.site === 'North', '[list] site is carried');
+  ok(e100.deviceCount === 1 && e100.deviceModels[0] === 'Yealink T54W', '[list] device count and models, never the MAC');
+  ok(e100.teams === false, '[list] a desk phone is not Teams');
+  const e103 = d.extensions.find((x) => x.ext === '103')!;
+  ok(e103.teams === true, '[list] a device whose aor local part is <ext>t marks the extension Teams-connected');
+  ok(e103.deviceCount === 0 && e103.deviceModels.length === 0, '[list] and that connector is not counted as a device');
+  ok(d.extensions.find((x) => x.ext === '101')!.transcription === true, '[list] transcription flag');
+  ok(d.extensions.find((x) => x.ext === '103')!.name === '', '[list] a user with no name has an empty name, not "undefined undefined"');
+  ok(d.dids.length === 4 && d.dids.filter((n) => n.kind === 'tollFree').length === 2, '[list] numbers with kind');
+  ok(d.dids[0]!.key === 'did:13175550100', '[list] a number key is did:<phonenumber>');
+  ok(d.e911Addresses.length === 2 && d.e911Addresses[0]!.key === 'addr:a-1', '[list] an address key is addr:<emergency-address-id>');
+  ok(d.e911Addresses[0]!.label === 'HQ — 1 Main St, Springfield', '[list] an address label is name — line 1, city');
+  ok(d.e911Addresses[1]!.label === 'Annex', '[list] and degrades to whatever parts exist');
+  ok(d.smsNumbers.length === 1 && d.smsNumbers[0]!.key === 'sms:13175550100', '[list] an SMS key is sms:<number>');
+  for (const x of d.extensions) ok(!JSON.stringify(x).includes('aor') && !JSON.stringify(x).includes('sip:'), `[list] no aor leaks on ${x.ext}`);
+}
+
+// ── counts are a fold over the lists ─────────────────────────────────────────────────────────────────
+{
+  const c = countDomainInventory(snap);
+  const d = listDomainInventory(snap);
+  ok(c.extensions.total === d.extensions.length, '[fold] extensions.total equals the list length');
+  ok(c.transcriptionEnabled === d.extensions.filter((x) => x.transcription).length, '[fold] transcription count equals the flagged items');
+  ok(c.teamsConnected === 1, '[fold] teamsConnected is a new numeric leaf');
+  ok(c.devices.total === 5, '[fold] the Teams connector is excluded from devices.total (still 5)');
+  ok(c.extensions.byDeviceCount['0'] === 1, '[fold] and from byDeviceCount — 103 has zero handsets');
+  ok(c.dids.total === d.dids.length && c.dids.tollFree === d.dids.filter((n) => n.kind === 'tollFree').length, '[fold] number counts equal the list');
+  ok(c.e911Addresses === d.e911Addresses.length && c.smsNumbers === d.smsNumbers.length, '[fold] address and SMS counts equal the lists');
+}
+
+// ── itemsFor ──────────────────────────────────────────────────────────────────────────────────────────
+{
+  const d = listDomainInventory(snap);
+  const keys = (p: string) => (itemsFor(d, p) ?? []).map((x) => x.key).join(',');
+  ok(keys('extensions.total') === 'ext:100,ext:101,ext:102,ext:103', '[itemsFor] extensions.total is every extension');
+  ok(keys('extensions.byScope.Office Manager') === 'ext:102', '[itemsFor] byScope filters on scope');
+  ok(keys('extensions.byServiceCode.premium') === 'ext:101,ext:102', '[itemsFor] byServiceCode filters on service code');
+  ok(keys('extensions.byServiceCode.') === 'ext:100,ext:103', '[itemsFor] the empty service code is addressable with a trailing dot');
+  ok(keys('extensions.byDeviceCount.3+') === 'ext:101', '[itemsFor] byDeviceCount buckets');
+  ok(keys('transcriptionEnabled') === 'ext:101,ext:102', '[itemsFor] transcriptionEnabled is the flagged extensions');
+  ok(keys('teamsConnected') === 'ext:103', '[itemsFor] teamsConnected is the Teams extensions');
+  ok(keys('dids.total').split(',').length === 4 && keys('dids.tollFree') === 'did:18005550102,did:18335550103' && keys('dids.local') === 'did:13175550100,did:13175550101', '[itemsFor] numbers by kind');
+  ok(keys('e911Addresses') === 'addr:a-1,addr:a-2', '[itemsFor] addresses');
+  ok(keys('smsNumbers') === 'sms:13175550100', '[itemsFor] SMS numbers');
+  ok(itemsFor(d, 'devices.total') === undefined, '[itemsFor] devices have no item list');
+  ok(itemsFor(d, 'devices.byModel.Yealink T54W') === undefined, '[itemsFor] not even per model');
+  ok(itemsFor(d, 'systemUsers.total') === undefined, '[itemsFor] system users are never compared, so no list');
+  ok(itemsFor(d, 'nonsense.path') === undefined, '[itemsFor] an unknown path is undefined, not []');
+  ok(itemLabel(d.extensions[0]!) === '100 — Ann Lee, North', '[label] extension: ext — name, site');
+  ok(itemLabel(d.extensions[3]!) === '103', '[label] extension with no name and no site is just the number');
+  ok(itemLabel(d.dids[2]!) === '18005550102 (toll-free)', '[label] number with kind');
+  ok(itemLabel(d.e911Addresses[0]!) === 'HQ — 1 Main St, Springfield', '[label] address is its label');
+  ok(itemLabel(d.smsNumbers[0]!) === '13175550100', '[label] SMS is its number');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

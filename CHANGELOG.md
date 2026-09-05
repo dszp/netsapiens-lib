@@ -5,6 +5,34 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-09-04
+
+### Added
+
+- **`listDomainInventory(snapshot)`** — the per-item lists behind `countDomainInventory`'s counts:
+  extensions and system users (`ExtensionItem`), phone numbers (`NumberItem`), E911 addresses
+  (`AddressItem`) and SMS numbers (`SmsItem`), each with a stable `key` (`ext:100`, `did:13175550100`,
+  `addr:a-1`, `sms:13175550100`). Pure, same allowlist discipline as the counts: name, site and device
+  *models* are carried; a device's MAC, SIP credentials and email never are.
+- **`itemsFor(detail, path)`** — the items behind one of `countDomainInventory`'s dotted-path counts
+  (`extensions.total`, `extensions.byScope.<scope>`, `extensions.byServiceCode.<code>`,
+  `extensions.byDeviceCount.<0|1|2|3+>`, `transcriptionEnabled`, `teamsConnected`, `dids.total`,
+  `dids.tollFree`, `dids.local`, `e911Addresses`, `smsNumbers`). Returns `undefined` — not `[]` — for a
+  dimension with no item list (`devices.*`, `systemUsers.*`) or an unrecognized path.
+- **`itemLabel(item)`** — one display line for any `InventoryItem`, for an operator-facing accept/reject
+  list.
+- **`teamsConnected`** on `DomainInventory` and `teams` on `ExtensionItem` — an extension with a
+  Microsoft Teams connector device (SIP `aor` local part `<ext>t`). That connector device is excluded
+  from `devices`/`deviceCount`: it is a connector, not a handset.
+
+### Changed
+
+- **`countDomainInventory` is now a fold over `listDomainInventory`'s lists** — same output shape and
+  values as before, plus `teamsConnected`, and the two can no longer disagree because one is derived
+  from the other.
+- Lists carry names and sites by design, unlike the counts — that is the point of a per-item list — but
+  still never a MAC or a SIP credential.
+
 ## [0.2.0] — 2026-09-03
 
 ### Added
