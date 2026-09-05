@@ -100,7 +100,8 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(d.extensions.find((x) => x.ext === '104')!.anyDevice === false, '[list] and one with nothing has none');
   ok(d.dids.length === 4 && d.dids.filter((n) => n.kind === 'tollFree').length === 2, '[list] numbers with kind');
   ok(d.dids[0]!.key === 'did:13175550100', '[list] a number key is did:<phonenumber>');
-  ok(d.e911Addresses.length === 2 && d.e911Addresses[0]!.key === 'addr:a-1', '[list] an address key is addr:<emergency-address-id>');
+  ok(d.e911Addresses.length === 2, '[list] two address items');
+  ok(d.e911Addresses[0]!.key === 'addr:a-1', '[list] an address key is addr:<emergency-address-id>');
   ok(d.e911Addresses[0]!.label === 'HQ — 1 Main St, Springfield', '[list] an address label is name — line 1, city');
   ok(d.e911Addresses[1]!.label === 'Annex', '[list] and degrades to whatever parts exist');
   ok(d.smsNumbers.length === 1 && d.smsNumbers[0]!.key === 'sms:13175550100', '[list] an SMS key is sms:<number>');
@@ -118,7 +119,8 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(c.extensions.byDeviceCount['0'] === 2, '[fold] and from byDeviceCount — 103 and 104 have zero handsets');
   ok(c.extensions.withAnyDevice === 4 && c.extensions.withNoDevice === 1, '[fold] device presence counts, connector included');
   ok(c.extensions.withAnyDevice + c.extensions.withNoDevice === c.extensions.total, '[fold] the two presence leaves partition the total');
-  ok(c.dids.total === d.dids.length && c.dids.tollFree === d.dids.filter((n) => n.kind === 'tollFree').length, '[fold] number counts equal the list');
+  ok(c.dids.total === d.dids.length, '[fold] dids.total equals the number list length');
+  ok(c.dids.tollFree === d.dids.filter((n) => n.kind === 'tollFree').length, '[fold] dids.tollFree equals the toll-free items');
   ok(c.e911Addresses === d.e911Addresses.length && c.smsNumbers === d.smsNumbers.length, '[fold] address and SMS counts equal the lists');
 }
 
@@ -135,7 +137,9 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(keys('extensions.withNoDevice') === 'ext:104', '[itemsFor] withNoDevice is the rest');
   ok(keys('transcriptionEnabled') === 'ext:101,ext:102', '[itemsFor] transcriptionEnabled is the flagged extensions');
   ok(keys('teamsConnected') === 'ext:103', '[itemsFor] teamsConnected is the Teams extensions');
-  ok(keys('dids.total').split(',').length === 4 && keys('dids.tollFree') === 'did:18005550102,did:18335550103' && keys('dids.local') === 'did:13175550100,did:13175550101', '[itemsFor] numbers by kind');
+  ok(keys('dids.total').split(',').length === 4, '[itemsFor] dids.total is every number');
+  ok(keys('dids.tollFree') === 'did:18005550102,did:18335550103', '[itemsFor] dids.tollFree is the toll-free numbers');
+  ok(keys('dids.local') === 'did:13175550100,did:13175550101', '[itemsFor] dids.local is the rest');
   ok(keys('e911Addresses') === 'addr:a-1,addr:a-2', '[itemsFor] addresses');
   ok(keys('smsNumbers') === 'sms:13175550100', '[itemsFor] SMS numbers');
   ok(itemsFor(d, 'devices.total') === undefined, '[itemsFor] devices have no item list');
@@ -147,6 +151,47 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(itemLabel(d.dids[2]!) === '18005550102 (toll-free)', '[label] number with kind');
   ok(itemLabel(d.e911Addresses[0]!) === 'HQ — 1 Main St, Springfield', '[label] address is its label');
   ok(itemLabel(d.smsNumbers[0]!) === '13175550100', '[label] SMS is its number');
+}
+
+// ── blank identity fields never collide onto one key ─────────────────────────────────────────────────
+{
+  const blank = {
+    meta: { domain: 'blank.example' },
+    users: [{ 'user-scope': 'Basic User', 'service-code': '', 'name-first-name': 'No', 'name-last-name': 'Id' }],
+    devicesByUser: { '': [{ aor: 'sip:t@blank.example', 'device-models-model': 'Yealink T31P' }] },
+    phonenumbers: [{ phonenumber: '' }, { phonenumber: '' }],
+    addresses: [
+      { 'emergency-address-id': '', 'address-name': 'Suite A', 'address-line-1': '1 Main St', 'address-city': 'Springfield' },
+      { 'emergency-address-id': '', 'address-name': 'Suite B', 'address-line-1': '2 Main St', 'address-city': 'Springfield' },
+    ],
+    smsnumbers: [{ number: '' }, { number: '' }],
+  } as Snapshot;
+  const d = listDomainInventory(blank);
+  const again = listDomainInventory(blank);
+
+  const [a0, a1] = d.e911Addresses;
+  ok(a0!.key.startsWith('addr:~'), '[blank] a blank address id falls back to addr:~<hash>');
+  ok(a1!.key.startsWith('addr:~'), '[blank] and so does the second one');
+  ok(a0!.key !== a1!.key, '[blank] two blank-id addresses on different streets get different keys');
+  ok(a0!.key === again.e911Addresses[0]!.key, '[blank] the derived key is stable across two calls');
+  ok(a1!.key === again.e911Addresses[1]!.key, '[blank] for the second address too');
+  ok(a0!.label !== '', '[blank] a blank-id address still has a non-empty label');
+  ok(a0!.label === 'Suite A — 1 Main St, Springfield', '[blank] and it is the same name — line 1, city label');
+
+  const [n0, n1] = d.dids;
+  ok(n0!.key.startsWith('did:~'), '[blank] a blank number falls back to did:~<hash>');
+  ok(n0!.key !== n1!.key, '[blank] two blank numbers are told apart by position, since nothing else differs');
+  ok(n0!.key === again.dids[0]!.key, '[blank] and that key is stable across two calls');
+
+  const [s0, s1] = d.smsNumbers;
+  ok(s0!.key.startsWith('sms:~'), '[blank] a blank SMS number falls back to sms:~<hash>');
+  ok(s0!.key !== s1!.key, '[blank] two blank SMS numbers get different keys');
+
+  const x = d.extensions[0]!;
+  ok(x.key.startsWith('ext:~'), '[blank] a blank user falls back to ext:~<hash>');
+  ok(x.teams === false, '[blank] and a bare `t` aor is not a Teams connector without an extension number to match');
+  ok(x.deviceCount === 1, '[blank] that device is counted as a handset rather than dropped');
+  ok(x.key === again.extensions[0]!.key, '[blank] the extension key is stable across two calls');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

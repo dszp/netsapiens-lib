@@ -40,6 +40,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tell it apart from a real zero. `Snapshot` gains **`deviceReadFailures?: string[]`**: the extensions
   whose read failed, present whenever `includeDevices` was asked for (`[]` when nothing failed, absent
   otherwise). A 404 is still softened to `[]` and is not a failure.
+- **A blank identity field no longer hands two records the same item key.** `ext:`, `did:`, `addr:`
+  and `sms:` with nothing after the colon collided, so a consumer keying an acceptance by that key
+  accepted every nameless record of that kind at once; a blank id now derives `<kind>:~<hash>` (FNV-1a
+  over the record's other allowlisted label fields, plus its position for a number or SMS number,
+  which nothing else distinguishes). A blank `user` also no longer reads a device whose `aor` local
+  part is a bare `t` as a Teams connector, and an address with no id keeps a non-empty label.
 
 ### Changed
 
