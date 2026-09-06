@@ -63,7 +63,10 @@ Two composites are provided because they're multi-read and worth getting right o
 
 The snapshot is the routing subset — what `resolveFlow()` needs. It is not a full domain export. Four
 options pull in more, each off by default because each costs an extra read: `includeAddresses` (E911
-address records), `includeSmsNumbers` (the domain-level SMS-enabled number list), `includeDevices`
+address records **and** emergency endpoints — two reads under one flag, because the endpoint is what the
+carrier bills for and the address is the location it dispatches to, and counting one without the other
+is how a domain gets billed for the wrong thing), `includeSmsNumbers` (the domain-level SMS-enabled
+number list), `includeDevices`
 (per-extension device records — one `/devices` read per real extension, so it is the expensive one on a
 domain with many seats), and `includeUserSmsNumbers` (per-extension SMS numbers into
 `snapshot.smsNumbersByUser` — same one-read-per-extension cost, needed because the domain-level list
@@ -95,7 +98,13 @@ VoIP operator actually sells on:
   it is a connector, not a handset. See [Device suffixes](#device-suffixes).
 - `dids` — phone numbers: `total` / `tollFree` / `local`, all three **excluding fax lines**, plus
   `fax` and `all` (everything, `total + fax === all`). See [Fax lines](#fax-lines).
-- `e911Addresses`, `smsNumbers` — record counts.
+- `e911Addresses` — E911 **address** records: dispatchable locations, information only.
+- `e911Endpoints` — provisioned Emergency **Endpoints**: a callback number, a caller name, a billing
+  address and a vendor. This is the unit the E911 carrier routes on and bills per. See
+  [E911](#e911-endpoints-bill-addresses-locate).
+- `e911Legacy` — distinct legacy emergency numbers on a domain that has no endpoint records. Comparable
+  with `e911Endpoints` and never overlapping it.
+- `smsNumbers` — record count.
 - `devices` — `total` and `byModel`, real extensions only (a system user's device is not a seat).
 
 Every leaf is a number, on purpose: a caller reconciling this against a billing system addresses a
@@ -183,6 +192,8 @@ never appear, though names and sites now do (that's the point of a list). Each i
 | `extensions`, `systemUsers` | `ext:<user>` |
 | `dids` | `did:<phonenumber>` |
 | `e911Addresses` | `addr:<emergency-address-id>` |
+| `e911Endpoints` | `e911:<callback digits>` |
+| `e911Legacy` | `e911legacy:<digits>` |
 | `smsNumbers` | `sms:<number>` |
 
 A number carries `fax` (see [Fax lines](#fax-lines)) and `destination` — where it routes, in words
@@ -210,6 +221,8 @@ no separate lookup table:
 | `dids.fax` | fax lines |
 | `dids.all` | every phone number, fax lines included |
 | `e911Addresses` | E911 addresses |
+| `e911Endpoints` | Emergency endpoints |
+| `e911Legacy` | Legacy emergency numbers |
 | `smsNumbers` | SMS numbers |
 
 `devices.*` and `systemUsers.*` paths return `undefined` — not `[]` — because there is no item list for
@@ -235,15 +248,56 @@ address and SMS number either `own-site` (the item's own site matches), `via-use
 never fetched with `includeUserSmsNumbers`.
 
 Each verdict carries **`sites: string[]`** as well as `site`. They agree wherever there is one site,
-and only an **E911 address** can carry more than one: an address is a fact about a place, and users on
-four sites can all reference it, so `sites` names every one of them while `site` stays `null`. A
-consumer splitting a domain between billing accounts should read `sites` — placing such an address on
-exactly one account leaves every other referencing account's E911 line short.
+and only the three E911 kinds — an **address**, an **endpoint**, a **legacy number** — can carry more
+than one: each is a fact about a place, and users on four sites can all reference it, so `sites` names
+every one of them while `site` stays `null`. A consumer splitting a domain between billing accounts
+should read `sites` — placing such an item on exactly one account leaves every other referencing
+account's E911 line short.
+
+Attribution reads two E911 **inheritances** into a blank field before it decides anything: a user with a
+blank `emergency-address-id` is placed as referencing the domain's default address, and one with a blank
+`caller-id-number-emergency` as referencing that address's endpoint. Reading the raw records instead
+would call a domain's busiest address unreferenced — but both fallbacks are **this library's inference,
+not confirmed platform behaviour**, and the same state can be read as an E911 gap. They fail closed
+(nothing to inherit leaves the user referencing nothing), they move placement rather than counts, and
+the ⚠️ on `EmergencyModel` sets out exactly what is known and what is assumed.
 
 Filter `listDomainInventory(snapshot)`'s items by that
 attribution to scope a domain down to one site, then run `countInventoryDetail(detail)` over what's left
 to get counts that agree with what you kept, rather than recomputing `countDomainInventory` against the
 whole domain and hoping the numbers happen to match.
+
+### E911: endpoints bill, addresses locate
+
+Three things wear the E911 name in NetSapiens, and only one of them is billable.
+
+An **Emergency Endpoint** (`GET /domains/{d}/addresses/endpoints`) is a callback number, a caller name,
+a billing address and a vendor. It is what the carrier routes a 911 call on and what it charges for, and
+it is counted as `e911Endpoints`. ⚠️ An endpoint record holds its callback NUMBER in the
+`emergency-address-id` field — the same field name an address record uses for its own `a-…` id.
+
+An **Emergency Address** is a dispatchable location forwarded to responders. Several can sit under one
+endpoint, and nobody bills them; `e911Addresses` stays, as information.
+
+A **legacy emergency number** has no API object at all. On a domain still on the pre-endpoint model every
+user carries an empty `emergency-address-id` and a `caller-id-number-emergency` set to one of a handful
+of DIDs, and the carrier bills per one of those DIDs. `e911Legacy` counts the distinct ones, excluding
+any that is also an endpoint callback so a half-migrated domain is not billed twice for one place.
+
+Users, devices and sites point at an endpoint through their Emergency Caller ID matching its callback
+number, compared as digits (`emergencyDigits` collapses `1NXXNXXXXXX` to ten and reads the `[*]`
+wildcard as "not set"). `resolveEmergency(snapshot)` is the one place the domain-default fallbacks are
+applied, and both the counter and `attributeDomainInventory` read it, so the count and the placement
+cannot disagree about who references what. **Read its ⚠️ before relying on the placement**: that a blank
+field falls back to the domain default at all, and that the default address's callback is reachable by
+matching `address-name` against an endpoint, are two assumptions this library makes rather than two
+things the platform documents. Both fail closed.
+
+`e911Legacy` needs the endpoint list to have been read, because it is kept apart from `e911Endpoints` by
+excluding numbers that are already endpoint callbacks. **It is 0 whenever `snapshot.addressEndpoints` is
+`undefined`** — the fetch never asked — since a count derived from the users alone would report a
+fully-migrated domain's every emergency caller ID as a billable line. An empty ARRAY is the other fact,
+"asked, and there are none", and that one does support a count.
 
 ### Read/write split by charter
 

@@ -1,5 +1,5 @@
 /** Offline test for the domain inventory counter. pnpm test:inventory */
-import { countDomainInventory, listDomainInventory, itemsFor, itemLabel, destinationOf, usersByExt, DEFAULT_DEVICE_SUFFIXES } from './inventory.js';
+import { countDomainInventory, emergencyDigits, legacyEmergencyNumber, listDomainInventory, itemsFor, itemLabel, destinationOf, resolveEmergency, usersByExt, DEFAULT_DEVICE_SUFFIXES } from './inventory.js';
 import type { Rec, Snapshot } from './model.js';
 
 let pass = 0, fail = 0;
@@ -473,6 +473,192 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(DEFAULT_DEVICE_SUFFIXES.t!.teams === true && DEFAULT_DEVICE_SUFFIXES.wp!.teams === undefined,
     '[suffix] the exported default marks only t as the Teams connector');
 }
+
+// ── E911: endpoints bill, addresses locate, legacy numbers are derived ──────────────────────────────
+{
+  // One domain default address, one endpoint bound to it by name, and a second endpoint that nothing
+  // defaults to. `emergency-address-id` on an ENDPOINT is the callback number; on an ADDRESS it is the
+  // `a-…` id — the same field name meaning two things is the trap this fixture pins down.
+  const e911: Snapshot = {
+    meta: { domain: 'acme.example' },
+    users: [
+      { user: '100', 'service-code': '', site: 'North', 'emergency-address-id': 'a-1', 'caller-id-number-emergency': '3175550100' },
+      // Eleven digits where the endpoint says ten — the same endpoint, and the point of `emergencyDigits`.
+      { user: '101', 'service-code': '', site: 'North', 'emergency-address-id': 'a-2', 'caller-id-number-emergency': '13175550101' },
+      // Both fields blank: inherits the domain default address AND its endpoint. Not legacy.
+      { user: '102', 'service-code': '', site: 'South' },
+      // The wildcard is "not set", not a value.
+      { user: '103', 'service-code': '', site: 'South', 'caller-id-number-emergency': '[*]' },
+      { user: '700', 'service-code': 'system-aa', 'caller-id-number-emergency': '3175559999' },
+    ],
+    addresses: [
+      { 'emergency-address-id': 'a-1', 'address-name': 'HQ', 'address-line-1': '1 Main St', 'address-city': 'Springfield', domain_default: true },
+      { 'emergency-address-id': 'a-2', 'address-name': 'Annex', 'address-line-1': '2 Side St', 'address-city': 'Springfield' },
+    ],
+    addressEndpoints: [
+      { 'emergency-address-id': '3175550100', 'address-name': 'HQ', 'caller-name': 'Acme HQ', 'address-line-1': '1 Main St', 'address-city': 'Springfield', 'count-users-configured': 3, sub_count_total: 9 },
+      { 'emergency-address-id': '3175550101', 'address-name': 'Annex', 'caller-name': '', 'address-line-1': '', 'address-city': '' },
+    ],
+  } as Snapshot;
+
+  const inv = countDomainInventory(e911);
+  const d = listDomainInventory(e911);
+  ok(inv.e911Endpoints === 2, '[e911] two provisioned endpoints');
+  ok(inv.e911Addresses === 2, '[e911] and the two addresses are still counted, as information');
+  ok(inv.e911Legacy === 0, '[e911] a domain on the endpoint model has no legacy numbers');
+
+  const hq = d.e911Endpoints[0]!;
+  ok(hq.key === 'e911:3175550100', '[e911] the key is the callback, taken from the endpoint’s emergency-address-id');
+  ok(hq.callback === '3175550100' && hq.callerName === 'Acme HQ', '[e911] the callback and the caller name come off the record');
+  ok(hq.billingAddress === '1 Main St, Springfield', '[e911] the billing address is one line, no wider than the address list');
+  ok(hq.users === 3, '[e911] users is count-users-configured, not sub_count_total');
+  ok(itemLabel(hq) === '3175550100 — Acme HQ, 1 Main St, Springfield', '[e911] the label names the number, then who and where');
+  ok(itemLabel(d.e911Endpoints[1]!) === '3175550101', '[e911] and an endpoint with neither is just its number — no dangling dash');
+  {
+    // NO CALLBACK. The label is what `applyAssignment` writes into acceptance history, so a leading
+    // dash is bad and an empty string is worse — it records a decision about a thing it cannot name.
+    const [named, blank] = listDomainInventory({ ...e911, addressEndpoints: [
+      { 'caller-name': 'Acme Dock', 'address-line-1': '9 Dock Rd', 'address-city': 'Springfield' },
+      { 'address-name': 'Nothing' },
+    ] } as Snapshot).e911Endpoints;
+    ok(itemLabel(named!) === 'Acme Dock, 9 Dock Rd, Springfield', '[e911] an endpoint with no callback leads with what it does have, never a dash');
+    ok(itemLabel(blank!) === `(endpoint ${blank!.key.slice('e911:'.length)})`,
+      '[e911] and one with nothing at all is named by its derived key - never the empty string');
+    ok(itemLabel(blank!) !== '', '[e911] which is the fact that matters: an acceptance row can always name its item');
+  }
+  ok(itemsFor(d, 'e911Endpoints')!.length === 2, '[e911] itemsFor answers the endpoints path');
+  ok(itemsFor(d, 'e911Addresses')!.length === 2, '[e911] and the addresses path still answers separately');
+
+  const em = resolveEmergency(e911);
+  ok(em.defaultAddressId === 'a-1', '[e911] the domain default is the address flagged domain_default');
+  ok(em.defaultCallback === '3175550100', '[e911] whose callback is joined through the endpoint naming the same address');
+  ok(em.addressIdFor(e911.users![2]!) === 'a-1', '[e911] a user with a blank address id inherits the domain default');
+  ok(em.addressIdFor(e911.users![1]!) === 'a-2', '[e911] and one that sets its own keeps it');
+  ok(em.callbackFor(e911.users![2]!) === '3175550100', '[e911] a user with a blank caller ID inherits the default address’s callback');
+  ok(em.callbackFor(e911.users![1]!) === '3175550101', '[e911] an 11-digit caller ID resolves to the 10-digit endpoint');
+  ok(em.setCallbackFor(e911.users![3]!) === '', '[e911] the [*] wildcard is not set');
+  ok(em.callbackFor(e911.users![3]!) === '3175550100', '[e911] so that user inherits the default too');
+
+  // An endpoint whose record names no callback still has to be a distinguishable row.
+  const blank = listDomainInventory({ ...e911, addressEndpoints: [{ 'address-name': 'Dock', 'caller-name': 'Acme Dock' }] } as Snapshot).e911Endpoints[0]!;
+  ok(blank.key.startsWith('e911:~'), '[e911] an endpoint with no callback falls back to a derived key');
+}
+
+{
+  // A LEGACY domain: no endpoints at all, every user with a blank emergency-address-id and one of two
+  // numbers set by hand. Measured shape — a 100-user domain with exactly two such numbers.
+  const legacy: Snapshot = {
+    meta: { domain: 'demo.12345.service' },
+    users: [
+      { user: '100', 'service-code': '', site: 'North', 'caller-id-number-emergency': '3175550200' },
+      { user: '101', 'service-code': '', site: 'North', 'caller-id-number-emergency': '13175550200' },
+      { user: '102', 'service-code': '', site: 'South', 'caller-id-number-emergency': '3175550201' },
+      // Nothing set anywhere and no domain default to inherit: not legacy, and not anything else.
+      { user: '103', 'service-code': '', site: 'South' },
+      // On its device rather than on the user.
+      { user: '104', 'service-code': '', site: 'South' },
+      // A system user is not a seat and does not make a number legacy.
+      { user: '700', 'service-code': 'system-queue', 'caller-id-number-emergency': '3175550299' },
+    ],
+    devicesByUser: { '104': [{ device: 'sip:104@demo.12345.service', 'caller-id-number-emergency': '3175550201' }] },
+    // READ, and there are none — which is what a legacy domain looks like. An ABSENT list means the
+    // fetch never asked, and then no legacy count is derivable at all; that pair is tested below.
+    addressEndpoints: [],
+  } as Snapshot;
+
+  const inv = countDomainInventory(legacy);
+  const d = listDomainInventory(legacy);
+  ok(inv.e911Legacy === 2, '[legacy] two DISTINCT numbers across five seats, matching the carrier’s two lines');
+  ok(inv.e911Endpoints === 0 && inv.e911Addresses === 0, '[legacy] and no endpoints or addresses to count');
+  ok(d.e911Legacy.map((x) => x.key).join() === 'e911legacy:3175550200,e911legacy:3175550201', '[legacy] keyed by the digits');
+  ok(d.e911Legacy[0]!.users === 2, '[legacy] the 10- and 11-digit spellings are one number');
+  ok(d.e911Legacy[1]!.users === 2, '[legacy] and a device’s number counts when the user sets none');
+  ok(itemLabel(d.e911Legacy[0]!) === '3175550200 — legacy E911 (2 users)', '[legacy] the label says why a bare number is on an E911 row');
+  ok(itemLabel({ key: 'e911legacy:3175550299', number: '3175550299', users: 1 }) === '3175550299 — legacy E911 (1 user)',
+    '[legacy] and it agrees with itself on one — a label that reads "(1 users)" reads as a rendering fault');
+  ok(itemsFor(d, 'e911Legacy')!.length === 2, '[legacy] itemsFor answers the legacy path');
+
+  // HALF-MIGRATED: one of the two numbers is now a provisioned endpoint. It must be counted once, as an
+  // endpoint, or the domain pays for the same place twice.
+  const half = { ...legacy, addressEndpoints: [{ 'emergency-address-id': '3175550200', 'address-name': 'HQ', 'caller-name': 'Demo HQ' }] } as Snapshot;
+  const hi = countDomainInventory(half);
+  ok(hi.e911Endpoints === 1 && hi.e911Legacy === 1, '[legacy] a number that became an endpoint leaves the legacy count');
+  ok(listDomainInventory(half).e911Legacy[0]!.number === '3175550201', '[legacy] and the one still on the old model stays');
+
+  // A user with BOTH fields blank on a domain that HAS a default is on the new model, not the old one.
+  const withDefault = {
+    ...legacy,
+    users: [{ user: '110', 'service-code': '', site: 'North' }],
+    devicesByUser: {},
+    addresses: [{ 'emergency-address-id': 'a-9', 'address-name': 'HQ', domain_default: true }],
+    addressEndpoints: [{ 'emergency-address-id': '3175550300', 'address-name': 'HQ', 'caller-name': 'Demo HQ' }],
+  } as Snapshot;
+  ok(countDomainInventory(withDefault).e911Legacy === 0, '[legacy] both fields blank is the domain default, not a legacy number');
+  const em = resolveEmergency(withDefault);
+  ok(legacyEmergencyNumber(withDefault.users![0]!, em) === '', '[legacy] and the predicate says so directly');
+
+  // A user who SETS an emergency address is on the new model whatever their caller ID says — even when
+  // that number matches no endpoint this snapshot can see. Without the address-id clause of
+  // `legacyEmergencyNumber` this reads as a legacy line, and the account is billed for one.
+  const addressed = {
+    ...legacy,
+    users: [{ user: '120', 'service-code': '', site: 'North', 'emergency-address-id': 'a-9', 'caller-id-number-emergency': '3175550777' }],
+    devicesByUser: {},
+    addresses: [{ 'emergency-address-id': 'a-9', 'address-name': 'HQ', domain_default: true }],
+    addressEndpoints: [{ 'emergency-address-id': '3175550300', 'address-name': 'HQ', 'caller-name': 'Demo HQ' }],
+  } as Snapshot;
+  ok(countDomainInventory(addressed).e911Legacy === 0,
+    '[legacy] a user with a SET emergency address is never legacy, whatever its caller ID matches');
+  ok(legacyEmergencyNumber(addressed.users![0]!, resolveEmergency(addressed)) === '',
+    '[legacy] and the predicate refuses it on the address id alone, not on the number');
+}
+
+{
+  // ── the USER's own caller ID wins over its devices' ────────────────────────────────────────────
+  // The device is consulted only where the user sets nothing. Reversing the two would attribute the
+  // seat to whichever handset happened to be first in the record, which is not what the portal does.
+  const both = {
+    meta: { domain: 'acme.example' },
+    users: [{ user: '100', 'service-code': '', 'caller-id-number-emergency': '3175550100' }],
+    devicesByUser: { '100': [{ device: 'sip:100@acme.example', 'caller-id-number-emergency': '3175550101' }] },
+    addressEndpoints: [],
+  } as Snapshot;
+  ok(resolveEmergency(both).setCallbackFor(both.users![0]!) === '3175550100',
+    '[e911] a user carrying its own caller ID wins over a device carrying a different one');
+  const deviceOnly = { ...both, users: [{ user: '100', 'service-code': '' }] } as Snapshot;
+  ok(resolveEmergency(deviceOnly).setCallbackFor(deviceOnly.users![0]!) === '3175550101',
+    '[e911] and the device is read only where the user sets nothing');
+}
+
+{
+  // ── the ENDPOINTS list was never READ ──────────────────────────────────────────────────────────
+  // `undefined` (the fetch never asked) and `[]` (asked, and the domain has none) are different facts,
+  // and only the second one can support a legacy count: without the endpoint list there is nothing to
+  // exclude against, so every emergency caller ID on a fully-migrated domain would read as a legacy
+  // line. An under-count is safe here; a confident over-count on a billing page is not.
+  const users = [
+    { user: '100', 'service-code': '', site: 'North', 'emergency-address-id': '', 'caller-id-number-emergency': '3175550100' },
+    { user: '101', 'service-code': '', site: 'North', 'emergency-address-id': '', 'caller-id-number-emergency': '3175550101' },
+  ];
+  const never = { meta: { domain: 'acme.example' }, users } as Snapshot;
+  const read = { ...never, addressEndpoints: [] } as Snapshot;
+  const provisioned = { ...never, addressEndpoints: [
+    { 'emergency-address-id': '3175550100', 'address-name': 'HQ', 'caller-name': 'Acme HQ' },
+    { 'emergency-address-id': '3175550101', 'address-name': 'Annex', 'caller-name': 'Acme Annex' },
+  ] } as Snapshot;
+  ok(countDomainInventory(never).e911Legacy === 0 && listDomainInventory(never).e911Legacy.length === 0,
+    '[legacy] no endpoint read at all answers 0 legacy numbers rather than inventing two');
+  ok(countDomainInventory(read).e911Legacy === 2,
+    '[legacy] while an endpoint list that was read and is EMPTY is a real legacy domain');
+  ok(countDomainInventory(provisioned).e911Legacy === 0 && countDomainInventory(provisioned).e911Endpoints === 2,
+    '[legacy] and the same two users on the endpoint model are two endpoints and no legacy numbers');
+}
+
+ok(emergencyDigits('+1 (317) 555-0100') === '3175550100' && emergencyDigits('13175550100') === '3175550100',
+  '[e911] a caller ID normalises to ten digits however it is punctuated');
+ok(emergencyDigits('[*]') === '' && emergencyDigits('') === '' && emergencyDigits(undefined) === '',
+  '[e911] and the three ways of saying "not set" all answer empty');
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

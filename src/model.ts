@@ -97,6 +97,19 @@ export interface Snapshot {
    */
   addresses?: Rec[];
   /**
+   * Emergency ENDPOINT records — GET /domains/{d}/addresses/endpoints. Read alongside `addresses`,
+   * and `undefined` means "not read" the same way.
+   *
+   * An endpoint is what the E911 carrier routes on and bills per: a callback number, a caller name, a
+   * billing address and a vendor. An ADDRESS is a dispatchable location forwarded to responders, and
+   * several of them can sit under one endpoint — so the two lists count different things and neither
+   * substitutes for the other.
+   *
+   * ⚠️ An endpoint record holds its callback NUMBER in `emergency-address-id` — the same field name an
+   * address record uses for its own `a-…` id. Reading it as an address id joins nothing.
+   */
+  addressEndpoints?: Rec[];
+  /**
    * SMS-enabled numbers — GET /domains/{d}/smsnumbers?dest=*. The endpoint is documented with no
    * parameters, but a live server answers 400 without `dest` or `number`; `dest=*` is the wildcard
    * that returns the list. Present only when the fetch asked for them.

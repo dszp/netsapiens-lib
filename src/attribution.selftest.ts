@@ -90,5 +90,80 @@ ok(queueAddr['addr:a-3']!.how === 'unattributed:unreferenced', 'a system user re
 const devRoute = attributeDomainInventory({ ...snap, phonenumbers: [{ phonenumber: '13175550105', 'dial-rule-application': 'to-single-device', 'dial-rule-translation-destination-user': '101' }] }).items;
 ok(devRoute['did:13175550105']!.site === 'South' && devRoute['did:13175550105']!.how === 'via-user:101', 'to-single-device to a real user inherits the site like to-user');
 
+// ── E911 endpoints, legacy numbers, and the two inheritances ────────────────────────────────────────
+{
+  // Two endpoints. One is bound to the DOMAIN DEFAULT address, so the users who set nothing land on it
+  // — that inheritance is the whole reason a "nobody references this" verdict cannot be read off the
+  // raw user records.
+  const e: Snapshot = {
+    meta: { domain: 'acme.example' },
+    users: [
+      { user: '100', site: 'North', 'service-code': '', 'emergency-address-id': 'a-1', 'caller-id-number-emergency': '3175550100' },
+      { user: '101', site: 'South', 'service-code': '', 'emergency-address-id': 'a-1', 'caller-id-number-emergency': '13175550100' },
+      { user: '102', site: 'South', 'service-code': '', 'emergency-address-id': 'a-2', 'caller-id-number-emergency': '3175550101' },
+      { user: '103', site: 'North', 'service-code': '' },                                   // inherits both
+      { user: '104', site: 'North', 'service-code': '' },                                   // device-set, below
+      { user: '701', site: 'North', 'service-code': 'system-queue', 'caller-id-number-emergency': '3175550102' },
+    ],
+    devicesByUser: { '104': [{ device: 'sip:104@acme.example', 'caller-id-number-emergency': '3175550101' }] },
+    addresses: [
+      { 'emergency-address-id': 'a-1', 'address-name': 'HQ', domain_default: true },
+      { 'emergency-address-id': 'a-2', 'address-name': 'Annex' },
+      { 'emergency-address-id': 'a-3', 'address-name': 'Old dock' },
+    ],
+    addressEndpoints: [
+      { 'emergency-address-id': '3175550100', 'address-name': 'HQ', 'caller-name': 'Acme HQ' },
+      { 'emergency-address-id': '3175550101', 'address-name': 'Annex', 'caller-name': 'Acme Annex' },
+      { 'emergency-address-id': '3175550102', 'address-name': 'Nobody', 'caller-name': 'Acme Nobody' },
+    ],
+  } as Snapshot;
+
+  const at = attributeDomainInventory(e).items;
+  const det = listDomainInventory(e);
+  ok([...det.e911Endpoints, ...det.e911Legacy].every((i) => i.key in at), '[e911] every endpoint has an attribution');
+
+  ok(at['e911:3175550100']!.site === null
+    && JSON.stringify(at['e911:3175550100']!.sites) === JSON.stringify(['North', 'South'])
+    && at['e911:3175550100']!.how === 'via-users:100,101,103',
+    '[e911] the default endpoint carries both its explicit holders AND the user who inherited it');
+  ok(at['e911:3175550101']!.site === null, '[e911] an endpoint two sites reference has no single site, same as an address');
+  ok(JSON.stringify(at['e911:3175550101']!.sites) === JSON.stringify(['North', 'South'])
+    && at['e911:3175550101']!.how === 'via-users:102,104',
+    '[e911] a device-set caller ID references the endpoint exactly as a user-set one does');
+  ok(at['e911:3175550102']!.how === 'unattributed:unreferenced' && at['e911:3175550102']!.sites.length === 0,
+    '[e911] a system user referencing an endpoint does not attribute it');
+
+  // The ADDRESS rule inherits too: a-1 is the domain default, so 103 and 104 reference it without
+  // saying so, and a-3 is genuinely unreferenced.
+  ok(at['addr:a-1']!.how === 'via-users:100,101,103,104', '[e911] a blank emergency-address-id resolves to the domain default before "unreferenced"');
+  ok(at['addr:a-3']!.how === 'unattributed:unreferenced', '[e911] and an address nothing points at is still unreferenced');
+}
+
+{
+  // A LEGACY domain: no endpoints, no addresses, two hand-set numbers. Placed like an endpoint.
+  const l: Snapshot = {
+    meta: { domain: 'demo.12345.service' },
+    users: [
+      { user: '100', site: 'North', 'service-code': '', 'caller-id-number-emergency': '3175550200' },
+      { user: '101', site: 'South', 'service-code': '', 'caller-id-number-emergency': '3175550200' },
+      { user: '102', site: 'South', 'service-code': '', 'caller-id-number-emergency': '3175550201' },
+      { user: '103', site: '', 'service-code': '', 'caller-id-number-emergency': '3175550202' },
+    ],
+    // Endpoints READ, and there are none. Absent would mean the fetch never asked, and no legacy
+    // number is derivable in that state — see `DomainInventory.e911Legacy`.
+    addressEndpoints: [],
+  } as Snapshot;
+  const at = attributeDomainInventory(l).items;
+  ok(at['e911legacy:3175550200']!.site === null
+    && JSON.stringify(at['e911legacy:3175550200']!.sites) === JSON.stringify(['North', 'South'])
+    && at['e911legacy:3175550200']!.how === 'via-users:100,101',
+    '[legacy] a number two sites use carries both, like a shared address');
+  ok(at['e911legacy:3175550201']!.site === 'South' && at['e911legacy:3175550201']!.how === 'via-users:102',
+    '[legacy] and one site follows it');
+  ok(at['e911legacy:3175550202']!.how === 'unattributed:no-site' && at['e911legacy:3175550202']!.sites.length === 0,
+    '[legacy] a number whose only user has no site is no-site');
+}
+
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

@@ -24,9 +24,26 @@
  *   when there is exactly one and `null` otherwise, so a consumer that can only hold one still reads
  *   the unambiguous case correctly. `unreferenced` when no real extension names it; `no-site` when the
  *   ones that do have no site.
+ * - An E911 ENDPOINT: the same rule, over the users whose Emergency Caller ID equals its callback.
+ *   An endpoint is a fact about a place too — it is the thing the carrier bills for one — so it can
+ *   sit on several sites for the same reason an address can.
+ * - A LEGACY emergency number: the same rule again, over the users the number was derived from.
  * - An SMS number: the site of the user whose per-user list carries it (`via-user:<ext>`), or
  *   `sms-user-unknown` when no per-user list does — including when the per-user read was never
  *   made. Never guessed from the domain-level list, which does not say.
+ *
+ * ## A blank E911 field is READ AS the domain default — an inference, not a platform fact
+ *
+ * A user with a blank `emergency-address-id` is placed here as referencing the domain's default
+ * address, and one with a blank `caller-id-number-emergency` as referencing that address's endpoint.
+ * Reading the records literally instead would call a domain's busiest address unreferenced, so the
+ * fallback is the better of the two readings — but it is a reading. **It has not been confirmed against
+ * live platform behaviour**, and the same state can be read as an E911 gap; see the ⚠️ on
+ * `EmergencyModel` in `inventory.ts` for the two assumptions and how each fails closed. What they move
+ * is placement, not counts — on a split domain, which accounts are told they need an E911 line.
+ *
+ * Both are resolved by `resolveEmergency` in `inventory.ts`, the same call the counter makes, so the
+ * count and the placement cannot disagree about who references what.
  *
  * ## Keys are joined by index
  *
@@ -34,7 +51,7 @@
  * put an item's KEY (which may be a derived `~hash`) beside its RECORD's routing fields. That
  * invariant is this library's own, and this is the one place allowed to lean on it.
  */
-import { isSystemUser, listDomainInventory, str, usersByExt } from './inventory.js';
+import { isSystemUser, legacyEmergencyNumber, listDomainInventory, resolveEmergency, str, usersByExt } from './inventory.js';
 import type { Rec, Snapshot } from './model.js';
 
 export interface ItemAttribution {
@@ -87,26 +104,51 @@ export function attributeDomainInventory(snapshot: Snapshot): DomainAttribution 
     items[key] = one(site, `via-user:${dest}`);
   }
 
-  // Addresses, by index against `addresses`; referenced by REAL extensions only.
-  const refs = new Map<string, Rec[]>();
-  for (const u of users) {
-    if (isSystemUser(u)) continue;
-    const id = str(u['emergency-address-id']);
-    if (!id) continue;
-    const list = refs.get(id) ?? []; list.push(u); refs.set(id, list);
-  }
+  /**
+   * The verdict for a PLACE — an address, an endpoint, a legacy number — from the real extensions that
+   * reference it. One function because the three differ only in how "reference" is decided, and three
+   * copies of the multi-site rule would be three chances to disagree about it.
+   *
+   * SEVERAL SITES IS AN ANSWER, not a failure. The referencing users name every place the thing is
+   * used, and a consumer billing per site needs all of them; `site` still answers only the unambiguous
+   * case, which is what keeps a one-site consumer correct without reading `sites`.
+   */
+  const place = (who: Rec[]): ItemAttribution => {
+    if (!who.length) return none('unreferenced');
+    const sites = [...new Set(who.map((u) => str(u.site)).filter(Boolean))].sort();
+    if (sites.length === 0) return none('no-site');
+    const how = `via-users:${who.map((u) => str(u.user)).filter(Boolean).sort().join(',')}`;
+    return sites.length === 1 ? one(sites[0]!, how) : { site: null, sites, how };
+  };
+  /** Group the REAL extensions by whatever they reference; a blank answer references nothing. */
+  const referencedBy = (of: (u: Rec) => string): Map<string, Rec[]> => {
+    const refs = new Map<string, Rec[]>();
+    for (const u of users) {
+      if (isSystemUser(u)) continue;
+      const id = of(u);
+      if (!id) continue;
+      const list = refs.get(id) ?? []; list.push(u); refs.set(id, list);
+    }
+    return refs;
+  };
+
+  // The two inheritances (see the module doc), resolved once and shared with the counter's own reading
+  // of them — `listDomainInventory` above derived the legacy list from this same rule.
+  const em = resolveEmergency(snapshot);
+
+  // Addresses, by index against `addresses`. A user with a blank id references the DOMAIN DEFAULT.
+  const addrRefs = referencedBy((u) => em.addressIdFor(u));
   for (let i = 0; i < d.e911Addresses.length; i++) {
     const key = d.e911Addresses[i]!.key, id = str((addresses[i] ?? {})['emergency-address-id']);
-    const who = id ? refs.get(id) ?? [] : [];
-    if (!who.length) { items[key] = none('unreferenced'); continue; }
-    const sites = [...new Set(who.map((u) => str(u.site)).filter(Boolean))].sort();
-    if (sites.length === 0) { items[key] = none('no-site'); continue; }
-    // SEVERAL SITES IS AN ANSWER, not a failure. The referencing users name every place this address
-    // is used, and a consumer billing per site needs all of them; `site` still answers only the
-    // unambiguous case, which is what keeps a one-site consumer correct without reading `sites`.
-    const how = `via-users:${who.map((u) => str(u.user)).filter(Boolean).sort().join(',')}`;
-    items[key] = sites.length === 1 ? one(sites[0]!, how) : { site: null, sites, how };
+    items[key] = place(id ? addrRefs.get(id) ?? [] : []);
   }
+
+  // Endpoints and legacy numbers carry their own identity on the item (`callback` / `number`), so
+  // neither needs the index join the other lists use — nothing here depends on list order.
+  const cbRefs = referencedBy((u) => em.callbackFor(u));
+  for (const e of d.e911Endpoints) items[e.key] = place(e.callback ? cbRefs.get(e.callback) ?? [] : []);
+  const legacyRefs = referencedBy((u) => legacyEmergencyNumber(u, em));
+  for (const l of d.e911Legacy) items[l.key] = place(legacyRefs.get(l.number) ?? []);
 
   // SMS numbers, by index against `smsnumbers`, joined to a user through the per-user lists.
   const extBySms = new Map<string, string>();
