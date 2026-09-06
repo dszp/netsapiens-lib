@@ -165,8 +165,14 @@ export interface FetchSnapshotOptions {
    */
   includeDidDestRules?: boolean;
   /**
-   * Also read the domain's E911 addresses into `snapshot.addresses`. One extra call. Default false —
-   * the resolver does not use them; an inventory count does.
+   * Also read the domain's E911 addresses into `snapshot.addresses` AND its emergency ENDPOINTS into
+   * `snapshot.addressEndpoints`. Two extra calls. Default false — the resolver uses neither; an
+   * inventory count uses both.
+   *
+   * ONE flag for the two because they are one subject read two ways: the endpoint is what the E911
+   * carrier bills per, the address is the location responders are sent to, and a caller given the
+   * addresses alone would count the dispatchable locations and bill for them. That was the bug this
+   * option grew to fix, so the two are not separable here.
    */
   includeAddresses?: boolean;
   /**
@@ -212,13 +218,16 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
   };
 
   const domainRec = asArray(await client.get(base))[0] ?? { domain };
-  const [timeframes, users, callqueues, phonenumbers, autoattendants, addresses, smsnumbers] = await Promise.all([
+  const [timeframes, users, callqueues, phonenumbers, autoattendants, addresses, addressEndpoints, smsnumbers] = await Promise.all([
     soft(`${base}/timeframes`),
     soft(`${base}/users`),
     soft(`${base}/callqueues`),
     soft(`${base}/phonenumbers`),
     soft(`${base}/autoattendants`),
     opts.includeAddresses ? soft(`${base}/addresses`) : Promise.resolve(undefined),
+    // The BILLABLE half of E911, softened like the rest: a domain still on the legacy provisioning
+    // model has no endpoints at all and answers 404, which is "none" rather than a failure.
+    opts.includeAddresses ? soft(`${base}/addresses/endpoints`) : Promise.resolve(undefined),
     // `dest=*`: see includeSmsNumbers. A 404 is already softened to []; a 400 from a server that wants
     // a different parameter throws, which is right — a silent empty list would read as "no SMS numbers".
     opts.includeSmsNumbers ? soft(`${base}/smsnumbers?dest=*`) : Promise.resolve(undefined),
@@ -240,6 +249,7 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
       meta: { domain }, domain: domainRec, timeframes, users, callqueues, phonenumbers, autoattendants,
       ...(answerrulesByUser ? { answerrulesByUser } : {}),
       ...(addresses ? { addresses } : {}),
+      ...(addressEndpoints ? { addressEndpoints } : {}),
       ...(smsnumbers ? { smsnumbers } : {}),
     };
   }
@@ -343,6 +353,7 @@ export async function fetchDomainSnapshot(client: NsClient, domain: string, opts
     answerrulesByUser,
     agentsByQueue,
     ...(addresses ? { addresses } : {}),
+    ...(addressEndpoints ? { addressEndpoints } : {}),
     ...(smsnumbers ? { smsnumbers } : {}),
     ...(devicesByUser ? { devicesByUser } : {}),
     ...(deviceReadFailures ? { deviceReadFailures } : {}),
