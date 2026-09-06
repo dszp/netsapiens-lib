@@ -514,6 +514,18 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(hq.users === 3, '[e911] users is count-users-configured, not sub_count_total');
   ok(itemLabel(hq) === '3175550100 — Acme HQ, 1 Main St, Springfield', '[e911] the label names the number, then who and where');
   ok(itemLabel(d.e911Endpoints[1]!) === '3175550101', '[e911] and an endpoint with neither is just its number — no dangling dash');
+  {
+    // NO CALLBACK. The label is what `applyAssignment` writes into acceptance history, so a leading
+    // dash is bad and an empty string is worse — it records a decision about a thing it cannot name.
+    const [named, blank] = listDomainInventory({ ...e911, addressEndpoints: [
+      { 'caller-name': 'Acme Dock', 'address-line-1': '9 Dock Rd', 'address-city': 'Springfield' },
+      { 'address-name': 'Nothing' },
+    ] } as Snapshot).e911Endpoints;
+    ok(itemLabel(named!) === 'Acme Dock, 9 Dock Rd, Springfield', '[e911] an endpoint with no callback leads with what it does have, never a dash');
+    ok(itemLabel(blank!) === `(endpoint ${blank!.key.slice('e911:'.length)})`,
+      '[e911] and one with nothing at all is named by its derived key - never the empty string');
+    ok(itemLabel(blank!) !== '', '[e911] which is the fact that matters: an acceptance row can always name its item');
+  }
   ok(itemsFor(d, 'e911Endpoints')!.length === 2, '[e911] itemsFor answers the endpoints path');
   ok(itemsFor(d, 'e911Addresses')!.length === 2, '[e911] and the addresses path still answers separately');
 
@@ -562,6 +574,8 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(d.e911Legacy[0]!.users === 2, '[legacy] the 10- and 11-digit spellings are one number');
   ok(d.e911Legacy[1]!.users === 2, '[legacy] and a device’s number counts when the user sets none');
   ok(itemLabel(d.e911Legacy[0]!) === '3175550200 — legacy E911 (2 users)', '[legacy] the label says why a bare number is on an E911 row');
+  ok(itemLabel({ key: 'e911legacy:3175550299', number: '3175550299', users: 1 }) === '3175550299 — legacy E911 (1 user)',
+    '[legacy] and it agrees with itself on one — a label that reads "(1 users)" reads as a rendering fault');
   ok(itemsFor(d, 'e911Legacy')!.length === 2, '[legacy] itemsFor answers the legacy path');
 
   // HALF-MIGRATED: one of the two numbers is now a provisioned endpoint. It must be counted once, as an

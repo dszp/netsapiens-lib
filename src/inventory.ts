@@ -817,14 +817,19 @@ export function itemLabel(item: InventoryItem): string {
   if ('kind' in item) return item.kind === 'tollFree' ? `${item.number} (toll-free)` : item.number;
   if ('label' in item) return item.label;
   // An ENDPOINT is named by the number the carrier bills, then by who it announces and where it sends
-  // responders. Both halves are dropped when blank rather than printed as a dangling dash: a record
-  // with neither is still a row an operator has to decide about.
+  // responders. Either half is dropped when blank rather than printed against a dangling dash, and a
+  // record with NEITHER falls back to its derived key — the same shape an address with nothing to name
+  // it by gets, except the id here is the key rather than a position, so two blank-callback endpoints
+  // stay apart. Never the empty string: this label is what a consumer writes into its acceptance
+  // history, and a row that cannot name its own item is worse than an ugly one.
   if ('callback' in item) {
     const who = [item.callerName, item.billingAddress].filter(Boolean).join(', ');
-    return who ? `${item.callback} — ${who}` : item.callback;
+    if (item.callback) return who ? `${item.callback} — ${who}` : item.callback;
+    return who || `(endpoint ${item.key.slice('e911:'.length)})`;
   }
   // A LEGACY number says so on its own line: it looks like a DID, and nothing else on the page would
-  // tell a reader why a bare number is sitting on an E911 row.
-  if ('users' in item) return `${item.number} — legacy E911 (${item.users} users)`;
+  // tell a reader why a bare number is sitting on an E911 row. Singular is written out: a label that
+  // does not agree with itself reads as a rendering fault, and this one is frozen into history rows.
+  if ('users' in item) return `${item.number} — legacy E911 (${item.users} user${item.users === 1 ? '' : 's'})`;
   return item.number;
 }
