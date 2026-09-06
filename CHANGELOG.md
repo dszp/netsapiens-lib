@@ -5,6 +5,40 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0 — 2026-09-06
+
+### Added
+
+- **`e911Endpoints` — the E911 unit that is actually billed.** An Emergency Endpoint is a callback
+  number, a caller name, a billing address and a vendor; it is what the carrier routes a 911 call on and
+  what it charges for. `includeAddresses` now reads `/domains/{d}/addresses/endpoints` into
+  `snapshot.addressEndpoints` alongside the addresses (two calls under the one flag), and the counter
+  reports `e911Endpoints` with an `EndpointItem` list behind it — `itemsFor(detail, 'e911Endpoints')`,
+  labelled `<callback> — <caller name>, <billing address>`. ⚠️ An endpoint record holds its callback
+  NUMBER in the `emergency-address-id` field, which on an address record is that record's own `a-…` id.
+- **`e911Legacy` — the pre-endpoint model, which has no API object at all.** On a legacy domain every
+  user carries a blank `emergency-address-id` and a hand-set `caller-id-number-emergency`, and the
+  carrier bills per one of those numbers. `e911Legacy` counts the distinct ones (a device's number counts
+  when its user sets none), excluding any that is also an endpoint callback so a half-migrated domain is
+  not billed twice for one place. `itemsFor(detail, 'e911Legacy')` and a `LegacyE911Item` list behind it.
+- **`resolveEmergency(snapshot)`**, the one place the two E911 inheritances are resolved: a user with a
+  blank `emergency-address-id` references the domain's default address (`domain_default`), and one with a
+  blank `caller-id-number-emergency` references that address's endpoint. Both the counter and
+  `attributeDomainInventory` read it, so the count and the site placement cannot disagree about who
+  references what. `emergencyDigits` and `legacyEmergencyNumber` are exported beside it.
+- `attributeDomainInventory` places endpoints and legacy numbers on **every** site that references them,
+  the rule an address already had — each is a fact about a place, and a consumer billing per site needs
+  all of them.
+
+### Changed
+
+- **`DomainInventoryDetail` gains `e911Endpoints` and `e911Legacy`**, both required. Code constructing
+  one as a literal (an empty detail, a test fixture) must add the two fields; `countInventoryDetail`
+  tolerates their absence at runtime so a detail serialised by an older version still counts.
+- `attributeDomainInventory` now resolves the domain default before deciding an ADDRESS is unreferenced.
+  A domain whose users mostly leave `emergency-address-id` blank previously reported its default address
+  as `unattributed:unreferenced`; it is now attributed to those users' sites.
+
 ## 0.8.0 — 2026-09-05
 
 ### Added
