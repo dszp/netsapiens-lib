@@ -5,6 +5,19 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0 — 2026-09-05
+
+### Added
+
+- **A configurable device-suffix legend.** A device's SUFFIX is what its name carries after the extension number (`1001wp` on ext `1001` → `wp`; a bare `1001` → `''`), and `InventoryOptions.deviceSuffixes` — `{ suffix: { label, teams? } }` — says what each one means on your deployment. Compared case-insensitively.
+- `DEFAULT_DEVICE_SUFFIXES`, the three suffixes NetSapiens itself ships: `wp` SNAPmobile Web, `m` SNAPmobile, `t` Teams (`teams: true`). Used whenever no legend is supplied, so a caller who passes nothing gets 0.7.0's behaviour exactly. Exported with its type `DeviceSuffixLegend`.
+- `ExtensionItem.devices[]` entries carry `suffix` and `kind` — the legend's label for that suffix, `''` when the suffix is empty or the legend does not carry it. `model`, `teams`, `deviceCount`, `deviceModels` and `anyDevice` are unchanged in meaning.
+
+### Changed
+
+- **Teams detection is now the legend's `teams: true` suffix**, not a hardcoded `<ext>t` test. Under the default legend that IS `<ext>t`, so nothing moves; a supplied legend with no `teams` suffix — a deployment with no TeamMate — turns Teams detection off entirely, and every `<ext>t` device is a handset counted like any other. A supplied legend REPLACES the default wholesale rather than merging with it, which is the only way to express that absence.
+- `resolveFlow` labels a simultaneous-ring device from `DEFAULT_DEVICE_SUFFIXES` instead of its own private table, so a suffix means one thing across the library. The labels it prints therefore change: `wp` reads **SNAPmobile Web** (was "web app") and `m` reads **SNAPmobile** (was "mobile app"). `t` is Teams as before, `r` is still "app" and anything else is still a desk phone — those two are the resolver's own fallbacks for suffixes the legend does not name, and the icons are unchanged. The resolver takes no options: a call flow is drawn from a snapshot alone.
+
 ## 0.7.0 — 2026-09-05
 
 ### Changed

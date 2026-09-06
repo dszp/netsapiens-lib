@@ -1,5 +1,5 @@
 /** Offline test for the domain inventory counter. pnpm test:inventory */
-import { countDomainInventory, listDomainInventory, itemsFor, itemLabel, destinationOf, usersByExt } from './inventory.js';
+import { countDomainInventory, listDomainInventory, itemsFor, itemLabel, destinationOf, usersByExt, DEFAULT_DEVICE_SUFFIXES } from './inventory.js';
 import type { Rec, Snapshot } from './model.js';
 
 let pass = 0, fail = 0;
@@ -98,9 +98,9 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   const e101 = d.extensions.find((x) => x.ext === '101')!;
   ok(
     JSON.stringify(e101.devices) === JSON.stringify([
-      { name: '101a', model: 'Yealink T54W', teams: false },
-      { name: '101b', model: 'Yealink T31P', teams: false },
-      { name: '101c', model: '(unknown)', teams: false },
+      { name: '101a', model: 'Yealink T54W', teams: false, suffix: 'a', kind: '' },
+      { name: '101b', model: 'Yealink T31P', teams: false, suffix: 'b', kind: '' },
+      { name: '101c', model: '(unknown)', teams: false, suffix: 'c', kind: '' },
     ]),
     '[list] devices lists every device with its name, model and teams flag, in order',
   );
@@ -108,7 +108,7 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(e103.teams === true, '[list] a device whose aor local part is <ext>t marks the extension Teams-connected');
   ok(e103.deviceCount === 0 && e103.deviceModels.length === 0, '[list] and that connector is not counted as a device');
   ok(
-    JSON.stringify(e103.devices) === JSON.stringify([{ name: '103t', model: '', teams: true }]),
+    JSON.stringify(e103.devices) === JSON.stringify([{ name: '103t', model: '', teams: true, suffix: 't', kind: 'Teams' }]),
     '[list] devices includes the Teams connector with an empty model, even though deviceCount excludes it',
   );
   ok(d.extensions.find((x) => x.ext === '104')!.devices.length === 0, '[list] no devices means an empty devices list, not a throw');
@@ -384,6 +384,73 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
     destinationOf({ ...faxRule, 'dial-rule-translation-destination-user': '100' }, byExt, ['203.0.113.7']) === 'to fax server',
     '[destinationOf] the fax test wins over a destination user, so no reader is shown a bare IP',
   );
+}
+
+// ── the device-suffix legend ────────────────────────────────────────────────────────────────────────
+// A device's SUFFIX is what its name carries after the extension number, and the legend says what that
+// suffix IS. The default is the three NetSapiens ships; a supplied legend replaces it wholesale, which
+// is how a deployment without TeamMate turns Teams detection off and how one with its own app names it.
+{
+  const sufSnap = (devices: Rec[]): Snapshot => ({
+    meta: { domain: 'suffix.example' },
+    users: [{ user: '1001', 'user-scope': 'Basic User', 'service-code': '' }],
+    devicesByUser: { '1001': devices },
+  } as Snapshot);
+  const dev = (name: string, model = ''): Rec => ({ device: `sip:${name}@suffix.example`, 'device-models-model': model });
+  const one = (snapshot: Snapshot, opts?: Parameters<typeof listDomainInventory>[1]) =>
+    listDomainInventory(snapshot, opts).extensions[0]!;
+
+  // The default legend, one device at a time.
+  {
+    const x = one(sufSnap([dev('1001wp'), dev('1001m'), dev('1001t'), dev('1001b'), dev('1001', 'Yealink T54W')]));
+    const by = (name: string) => x.devices.find((d) => d.name === name)!;
+    ok(by('1001wp').suffix === 'wp' && by('1001wp').kind === 'SNAPmobile Web', '[suffix] wp is SNAPmobile Web');
+    ok(by('1001m').suffix === 'm' && by('1001m').kind === 'SNAPmobile', '[suffix] m is SNAPmobile');
+    ok(by('1001t').suffix === 't' && by('1001t').kind === 'Teams', '[suffix] t is Teams');
+    ok(by('1001t').teams === true, '[suffix] and the t entry carries teams: true');
+    ok(by('1001b').suffix === 'b' && by('1001b').kind === '', '[suffix] a suffix the legend does not carry has no kind, rather than a guessed one');
+    ok(by('1001b').teams === false, '[suffix] and it is a handset');
+    ok(by('1001').suffix === '' && by('1001').kind === '', '[suffix] a bare extension name has no suffix and no kind');
+    ok(x.teams === true, '[suffix] the extension is Teams-connected');
+    ok(x.deviceCount === 4 && x.devices.length === 5, '[suffix] the connector is in the display list and out of the count');
+    ok(x.anyDevice === true, '[suffix] anyDevice is unchanged');
+  }
+
+  // A legend WITHOUT `t` — a deployment with no TeamMate. Teams detection is off entirely, so the
+  // device that used to be a connector is a handset like any other and is counted as one.
+  {
+    const x = one(sufSnap([dev('1001t', 'Yealink T54W')]), { deviceSuffixes: { wp: { label: 'SNAPmobile Web' } } });
+    ok(x.teams === false, '[suffix] a legend without t means no Teams connectors at all');
+    ok(x.devices[0]!.teams === false && x.devices[0]!.kind === '', '[suffix] that device is a plain handset with no kind');
+    ok(x.deviceCount === 1 && x.deviceModels[0] === 'Yealink T54W', '[suffix] and it is counted, model and all');
+    ok(x.devices[0]!.model === 'Yealink T54W', '[suffix] a handset keeps its model — the blank is only for a connector');
+  }
+
+  // A supplied legend REPLACES the default rather than merging into it.
+  {
+    const x = one(sufSnap([dev('1001r'), dev('1001wp')]), { deviceSuffixes: { r: { label: 'Acme App' } } });
+    ok(x.devices.find((d) => d.name === '1001r')!.kind === 'Acme App', '[suffix] a supplied suffix is labelled from the supplied legend');
+    ok(x.devices.find((d) => d.name === '1001wp')!.kind === '', '[suffix] and wp is unknown again, because the supplied legend replaced the default wholesale');
+  }
+
+  // Case-insensitive on both sides of the comparison.
+  {
+    const x = one(sufSnap([dev('1001WP'), dev('1001T')]));
+    ok(x.devices[0]!.suffix === 'wp' && x.devices[0]!.kind === 'SNAPmobile Web', '[suffix] an upper-case device suffix matches the legend');
+    ok(x.devices[1]!.teams === true, '[suffix] including the Teams test');
+    const y = one(sufSnap([dev('1001r')]), { deviceSuffixes: { R: { label: 'Acme App' } } });
+    ok(y.devices[0]!.kind === 'Acme App', '[suffix] and an upper-case LEGEND key matches a lower-case device suffix');
+  }
+
+  // A name that does not start with the extension has no suffix — `sales1` is a differently-named
+  // device, not a device of kind `sales1`.
+  {
+    const x = one(sufSnap([dev('sales1')]));
+    ok(x.devices[0]!.suffix === '' && x.devices[0]!.kind === '', '[suffix] a name that does not start with the extension has no suffix');
+  }
+
+  ok(DEFAULT_DEVICE_SUFFIXES.t!.teams === true && DEFAULT_DEVICE_SUFFIXES.wp!.teams === undefined,
+    '[suffix] the exported default marks only t as the Teams connector');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

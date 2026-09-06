@@ -24,6 +24,7 @@
  */
 
 import type { EdgeKind, FlowGraph, FlowNode, NodeKind, Rec, Snapshot } from './model.js';
+import { DEFAULT_DEVICE_SUFFIXES } from './inventory.js';
 
 export interface EntityRef {
   kind: 'did' | 'user' | 'queue' | 'attendant';
@@ -42,27 +43,34 @@ const GREET_MAX = 90;
 const trim = (v: string, max = GREET_MAX): string => (v.length > max ? `${v.slice(0, max - 1).trimEnd()}…` : v);
 
 /**
- * Endpoint type by the agent-id / extension letter suffix (heuristic):
- *   wp → SNAPmobile Web (browser phone) · t → Microsoft Teams · m → SNAPmobile (mobile) ·
- *   r → mobile/desktop app · b / other lower letters → usually a desk phone.
+ * A diagram needs a glyph, and a suffix legend carries none — so the icons are the resolver's own,
+ * keyed by the same suffixes. `r` is here without being in the legend on purpose: it is the conventional
+ * NetSapiens+Ringotel app suffix, common enough to draw with a phone rather than a desk handset, but not
+ * something NetSapiens ships, so it has no place in a table this library states as fact.
+ */
+const SUFFIX_ICONS: Record<string, string> = { wp: '🌐', t: '💻', m: '📱', r: '📱' };
+/** Kinds for suffixes {@link DEFAULT_DEVICE_SUFFIXES} does not name. `r` for the reason above; anything
+ *  else lower-cased (`b`, and the rest) is a desk phone, which is what an unadorned device usually is. */
+const SUFFIX_FALLBACK_KINDS: Record<string, string> = { r: 'app' };
+
+/**
+ * Endpoint type by the agent-id / extension letter suffix (heuristic). The KIND comes from
+ * {@link DEFAULT_DEVICE_SUFFIXES} — the same legend `listDomainInventory` labels a device with, so a
+ * suffix means one thing across this library and the two cannot drift — with the icons above supplying
+ * what the legend does not.
+ *
  * Exact device info (model, MAC, transport) IS available via the device API but isn't pulled yet —
- * see ARCHITECTURE.md → NetSapiens routing model; this suffix guess is the cheap approximation.
+ * see ARCHITECTURE.md → NetSapiens routing model; this suffix guess is the cheap approximation. Note the
+ * resolver reads the DEFAULT legend and takes no options: a call flow is drawn from a snapshot alone, and
+ * a deployment's own suffixes reach the inventory through `InventoryOptions.deviceSuffixes` instead.
  */
 function deviceKindBySuffix(suffix: string): { icon: string; kind: string } {
-  switch (suffix.toLowerCase()) {
-    case 'wp':
-      return { icon: '🌐', kind: 'web app' };
-    case 't':
-      return { icon: '💻', kind: 'Teams' };
-    case 'm':
-      return { icon: '📱', kind: 'mobile app' };
-    case 'r':
-      return { icon: '📱', kind: 'app' };
-    case '':
-      return { icon: '', kind: '' };
-    default:
-      return { icon: '📞', kind: 'desk phone' }; // b and other letters
-  }
+  const k = suffix.toLowerCase();
+  if (!k) return { icon: '', kind: '' };
+  return {
+    icon: SUFFIX_ICONS[k] ?? '📞',
+    kind: DEFAULT_DEVICE_SUFFIXES[k]?.label ?? SUFFIX_FALLBACK_KINDS[k] ?? 'desk phone',
+  };
 }
 
 /** Compact agent queue-priority badge: "P" + a keycap digit (e.g. P2️⃣). Priority is a cross-queue
