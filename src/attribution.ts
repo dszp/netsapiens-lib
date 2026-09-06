@@ -32,13 +32,18 @@
  *   `sms-user-unknown` when no per-user list does — including when the per-user read was never
  *   made. Never guessed from the domain-level list, which does not say.
  *
- * ## A blank field is the DOMAIN DEFAULT, not "no answer"
+ * ## A blank E911 field is READ AS the domain default — an inference, not a platform fact
  *
- * A user with a blank `emergency-address-id` inherits the domain's default address, and one with a
- * blank `caller-id-number-emergency` inherits that address's endpoint — so the raw record understates
- * who references what, and reading it literally would call a domain's busiest address unreferenced.
- * Both inheritances are resolved by `resolveEmergency` in `inventory.ts`, the same call the counter
- * makes, so the count and the placement cannot disagree about who references what.
+ * A user with a blank `emergency-address-id` is placed here as referencing the domain's default
+ * address, and one with a blank `caller-id-number-emergency` as referencing that address's endpoint.
+ * Reading the records literally instead would call a domain's busiest address unreferenced, so the
+ * fallback is the better of the two readings — but it is a reading. **It has not been confirmed against
+ * live platform behaviour**, and the same state can be read as an E911 gap; see the ⚠️ on
+ * `EmergencyModel` in `inventory.ts` for the two assumptions and how each fails closed. What they move
+ * is placement, not counts — on a split domain, which accounts are told they need an E911 line.
+ *
+ * Both are resolved by `resolveEmergency` in `inventory.ts`, the same call the counter makes, so the
+ * count and the placement cannot disagree about who references what.
  *
  * ## Keys are joined by index
  *

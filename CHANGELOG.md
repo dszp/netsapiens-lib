@@ -24,11 +24,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **It requires the endpoint list**: that exclusion is what keeps the two dimensions apart, so the count
   is 0 whenever `snapshot.addressEndpoints` is `undefined` (the fetch never asked). An empty array —
   asked, and the domain has none — is the state that does support a count.
-- **`resolveEmergency(snapshot)`**, the one place the two E911 inheritances are resolved: a user with a
-  blank `emergency-address-id` references the domain's default address (`domain_default`), and one with a
-  blank `caller-id-number-emergency` references that address's endpoint. Both the counter and
-  `attributeDomainInventory` read it, so the count and the site placement cannot disagree about who
-  references what. `emergencyDigits` and `legacyEmergencyNumber` are exported beside it.
+- **`resolveEmergency(snapshot)`**, the one place the two E911 fallbacks are applied: a user with a
+  blank `emergency-address-id` is read as referencing the domain's default address (`domain_default`),
+  and one with a blank `caller-id-number-emergency` as referencing that address's endpoint. Both the
+  counter and `attributeDomainInventory` read it, so the count and the site placement cannot disagree
+  about who references what. **Both fallbacks are this library's inference rather than documented
+  platform behaviour** — read the ⚠️ on `EmergencyModel` before relying on the placement; they fail
+  closed, and they move placement rather than counts. `emergencyDigits` and `legacyEmergencyNumber` are
+  exported beside it.
 - `attributeDomainInventory` places endpoints and legacy numbers on **every** site that references them,
   the rule an address already had — each is a fact about a place, and a consumer billing per site needs
   all of them.

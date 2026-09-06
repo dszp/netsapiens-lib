@@ -47,10 +47,13 @@
  * under one endpoint, and nobody bills them. `e911Addresses` stays, as information.
  *
  * Users, devices and sites point at an endpoint through their Emergency Caller ID
- * (`caller-id-number-emergency`) matching the endpoint's callback number. A user with a blank one
- * inherits the DOMAIN DEFAULT address's endpoint, and a user with a blank `emergency-address-id`
- * inherits the domain default address itself — see {@link resolveEmergency}, which is where both
- * inheritances live so the counter and `attribution.ts` cannot disagree about them.
+ * (`caller-id-number-emergency`) matching the endpoint's callback number. This library then INFERS two
+ * fallbacks for a blank field — a blank `emergency-address-id` reads as the domain default address, and
+ * a blank caller ID reads as that address's endpoint. **Neither is a measured platform behaviour**; see
+ * the ⚠️ on {@link EmergencyModel} for what is known and what is assumed. They live in
+ * {@link resolveEmergency} alone, so the counter and `attribution.ts` cannot disagree about them, and
+ * they fail closed: nothing to inherit leaves a user referencing nothing rather than referencing a
+ * guess.
  *
  * ## Legacy emergency numbers, which have no API object at all
  *
@@ -477,19 +480,31 @@ export function usersByExt(users: Rec[]): Map<string, Rec> {
 }
 
 /**
- * How a domain's E911 records join up, and the two INHERITANCES a raw record does not show.
+ * How a domain's E911 records join up, and the two INHERITANCES this library reads into a blank field.
  *
  * Both the counter and `attribution.ts` need to answer "which endpoint does this user reference?" and
- * "which address?", and a blank field on the user is not the same as no answer — the portal falls back
- * to the domain default. Resolved in one place so the count and the site attribution cannot disagree
- * about who references what.
+ * "which address?". Resolved in one place so the count and the site attribution cannot disagree about
+ * who references what.
  *
- * ⚠️ **The default address's callback is joined by `address-name`.** An address record carries no
- * callback field of its own (verified against a live domain and 34 captured snapshots), so the only
- * thing tying the domain default to an endpoint is that the endpoint names the same address. Every
- * captured domain that had both agreed on that name. A domain whose endpoint names its address
- * differently resolves to `''` here, which reads as "no default callback" — the users who would have
- * inherited it stay unattributed rather than being attached to a guess.
+ * ⚠️ **Both inheritances are this library's inference, not a measured platform behaviour.** Two
+ * separate assumptions sit under them, and a consumer relying on the placement should know which:
+ *
+ * 1. **That a blank field falls back to the domain default at all.** A user with a blank
+ *    `caller-id-number-emergency` is read here as referencing the default address's endpoint, and one
+ *    with a blank `emergency-address-id` as referencing the default address. That is a plausible
+ *    reading of a record the portal badges "Domain Default" — but it has not been confirmed against a
+ *    live 911 call, and the same state can be read as an E911 GAP rather than an inheritance.
+ * 2. **That the default address's callback is joined by `address-name`.** An address record carries no
+ *    callback field of its own (checked against a live domain and 34 captured snapshots), so the only
+ *    thing tying the domain default to an endpoint is that the endpoint names the same address. Every
+ *    captured domain carrying both agreed on that name.
+ *
+ * Both fail CLOSED. No default address, no endpoint naming it, or a name that does not match, and
+ * `defaultCallback` is `''` — the users who would have inherited it reference nothing and are left
+ * unattributed, rather than being attached to a guess. The COUNTS are unaffected either way
+ * (`e911Endpoints` is a record count, and a user with both fields blank is correctly not legacy); what
+ * these assumptions move is PLACEMENT, which on a split domain decides which accounts are told they
+ * need an E911 line.
  */
 export interface EmergencyModel {
   /** The `emergency-address-id` of the record marked `domain_default`; `''` when the domain has none. */

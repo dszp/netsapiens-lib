@@ -254,10 +254,13 @@ every one of them while `site` stays `null`. A consumer splitting a domain betwe
 should read `sites` — placing such an item on exactly one account leaves every other referencing
 account's E911 line short.
 
-Attribution resolves the two E911 **inheritances** before it decides anything: a user with a blank
-`emergency-address-id` references the domain's default address, and one with a blank
-`caller-id-number-emergency` references that address's endpoint. Reading the raw records instead would
-call a domain's busiest address unreferenced.
+Attribution reads two E911 **inheritances** into a blank field before it decides anything: a user with a
+blank `emergency-address-id` is placed as referencing the domain's default address, and one with a blank
+`caller-id-number-emergency` as referencing that address's endpoint. Reading the raw records instead
+would call a domain's busiest address unreferenced — but both fallbacks are **this library's inference,
+not confirmed platform behaviour**, and the same state can be read as an E911 gap. They fail closed
+(nothing to inherit leaves the user referencing nothing), they move placement rather than counts, and
+the ⚠️ on `EmergencyModel` sets out exactly what is known and what is assumed.
 
 Filter `listDomainInventory(snapshot)`'s items by that
 attribution to scope a domain down to one site, then run `countInventoryDetail(detail)` over what's left
@@ -283,9 +286,12 @@ any that is also an endpoint callback so a half-migrated domain is not billed tw
 
 Users, devices and sites point at an endpoint through their Emergency Caller ID matching its callback
 number, compared as digits (`emergencyDigits` collapses `1NXXNXXXXXX` to ten and reads the `[*]`
-wildcard as "not set"). `resolveEmergency(snapshot)` is the one place the domain-default inheritances are
-resolved, and both the counter and `attributeDomainInventory` read it, so the count and the placement
-cannot disagree about who references what.
+wildcard as "not set"). `resolveEmergency(snapshot)` is the one place the domain-default fallbacks are
+applied, and both the counter and `attributeDomainInventory` read it, so the count and the placement
+cannot disagree about who references what. **Read its ⚠️ before relying on the placement**: that a blank
+field falls back to the domain default at all, and that the default address's callback is reachable by
+matching `address-name` against an endpoint, are two assumptions this library makes rather than two
+things the platform documents. Both fail closed.
 
 `e911Legacy` needs the endpoint list to have been read, because it is kept apart from `e911Endpoints` by
 excluding numbers that are already endpoint callbacks. **It is 0 whenever `snapshot.addressEndpoints` is
