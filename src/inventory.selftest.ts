@@ -549,6 +549,9 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
       { user: '700', 'service-code': 'system-queue', 'caller-id-number-emergency': '3175550299' },
     ],
     devicesByUser: { '104': [{ device: 'sip:104@demo.12345.service', 'caller-id-number-emergency': '3175550201' }] },
+    // READ, and there are none — which is what a legacy domain looks like. An ABSENT list means the
+    // fetch never asked, and then no legacy count is derivable at all; that pair is tested below.
+    addressEndpoints: [],
   } as Snapshot;
 
   const inv = countDomainInventory(legacy);
@@ -579,6 +582,30 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(countDomainInventory(withDefault).e911Legacy === 0, '[legacy] both fields blank is the domain default, not a legacy number');
   const em = resolveEmergency(withDefault);
   ok(legacyEmergencyNumber(withDefault.users![0]!, em) === '', '[legacy] and the predicate says so directly');
+}
+
+{
+  // ── the ENDPOINTS list was never READ ──────────────────────────────────────────────────────────
+  // `undefined` (the fetch never asked) and `[]` (asked, and the domain has none) are different facts,
+  // and only the second one can support a legacy count: without the endpoint list there is nothing to
+  // exclude against, so every emergency caller ID on a fully-migrated domain would read as a legacy
+  // line. An under-count is safe here; a confident over-count on a billing page is not.
+  const users = [
+    { user: '100', 'service-code': '', site: 'North', 'emergency-address-id': '', 'caller-id-number-emergency': '3175550100' },
+    { user: '101', 'service-code': '', site: 'North', 'emergency-address-id': '', 'caller-id-number-emergency': '3175550101' },
+  ];
+  const never = { meta: { domain: 'acme.example' }, users } as Snapshot;
+  const read = { ...never, addressEndpoints: [] } as Snapshot;
+  const provisioned = { ...never, addressEndpoints: [
+    { 'emergency-address-id': '3175550100', 'address-name': 'HQ', 'caller-name': 'Acme HQ' },
+    { 'emergency-address-id': '3175550101', 'address-name': 'Annex', 'caller-name': 'Acme Annex' },
+  ] } as Snapshot;
+  ok(countDomainInventory(never).e911Legacy === 0 && listDomainInventory(never).e911Legacy.length === 0,
+    '[legacy] no endpoint read at all answers 0 legacy numbers rather than inventing two');
+  ok(countDomainInventory(read).e911Legacy === 2,
+    '[legacy] while an endpoint list that was read and is EMPTY is a real legacy domain');
+  ok(countDomainInventory(provisioned).e911Legacy === 0 && countDomainInventory(provisioned).e911Endpoints === 2,
+    '[legacy] and the same two users on the endpoint model are two endpoints and no legacy numbers');
 }
 
 ok(emergencyDigits('+1 (317) 555-0100') === '3175550100' && emergencyDigits('13175550100') === '3175550100',

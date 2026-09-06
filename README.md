@@ -287,6 +287,12 @@ wildcard as "not set"). `resolveEmergency(snapshot)` is the one place the domain
 resolved, and both the counter and `attributeDomainInventory` read it, so the count and the placement
 cannot disagree about who references what.
 
+`e911Legacy` needs the endpoint list to have been read, because it is kept apart from `e911Endpoints` by
+excluding numbers that are already endpoint callbacks. **It is 0 whenever `snapshot.addressEndpoints` is
+`undefined`** — the fetch never asked — since a count derived from the users alone would report a
+fully-migrated domain's every emergency caller ID as a billable line. An empty ARRAY is the other fact,
+"asked, and there are none", and that one does support a count.
+
 ### Read/write split by charter
 
 `NsClient` exposes **`get()` and nothing else**, and `verify()` only ever issues `GET /jwt`. That is a

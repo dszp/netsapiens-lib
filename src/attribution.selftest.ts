@@ -149,6 +149,9 @@ ok(devRoute['did:13175550105']!.site === 'South' && devRoute['did:13175550105']!
       { user: '102', site: 'South', 'service-code': '', 'caller-id-number-emergency': '3175550201' },
       { user: '103', site: '', 'service-code': '', 'caller-id-number-emergency': '3175550202' },
     ],
+    // Endpoints READ, and there are none. Absent would mean the fetch never asked, and no legacy
+    // number is derivable in that state — see `DomainInventory.e911Legacy`.
+    addressEndpoints: [],
   } as Snapshot;
   const at = attributeDomainInventory(l).items;
   ok(at['e911legacy:3175550200']!.site === null

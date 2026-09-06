@@ -21,6 +21,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carrier bills per one of those numbers. `e911Legacy` counts the distinct ones (a device's number counts
   when its user sets none), excluding any that is also an endpoint callback so a half-migrated domain is
   not billed twice for one place. `itemsFor(detail, 'e911Legacy')` and a `LegacyE911Item` list behind it.
+  **It requires the endpoint list**: that exclusion is what keeps the two dimensions apart, so the count
+  is 0 whenever `snapshot.addressEndpoints` is `undefined` (the fetch never asked). An empty array —
+  asked, and the domain has none — is the state that does support a count.
 - **`resolveEmergency(snapshot)`**, the one place the two E911 inheritances are resolved: a user with a
   blank `emergency-address-id` references the domain's default address (`domain_default`), and one with a
   blank `caller-id-number-emergency` references that address's endpoint. Both the counter and

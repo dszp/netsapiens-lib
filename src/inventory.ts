@@ -61,7 +61,9 @@
  * dimensions together so one retail E911 line pays for either model.
  *
  * A number that IS an endpoint callback is excluded, because a half-migrated domain that counted it in
- * both dimensions would bill the same place twice.
+ * both dimensions would bill the same place twice. That exclusion is also the precondition: with no
+ * endpoint list read there is nothing to exclude against, so `e911Legacy` is 0 whenever
+ * `snapshot.addressEndpoints` is `undefined` rather than an array. See {@link DomainInventory.e911Legacy}.
  */
 import type { Rec, Snapshot } from './model.js';
 
@@ -113,7 +115,14 @@ export interface DomainInventory {
   e911Endpoints: number;
   /**
    * Distinct legacy emergency numbers — the pre-endpoint model, which has no API object of its own.
-   * Comparable with {@link DomainInventory.e911Endpoints} and never overlapping it; see the module doc.
+   * Comparable with {@link DomainInventory.e911Endpoints}, and never overlapping it **provided the
+   * snapshot carries an endpoint list**: the two are kept apart by excluding numbers that are already
+   * endpoint callbacks, which needs the endpoints to have been read.
+   *
+   * So this is **0 whenever `snapshot.addressEndpoints` is `undefined`** — the fetch never asked, and a
+   * count derived from the users alone would report a fully-migrated domain's every emergency caller ID
+   * as a line to bill for. An empty ARRAY is the other fact — asked, and the domain has none — and that
+   * one does support a count. Fetch with `includeAddresses: true` (see `fetchDomainSnapshot`).
    */
   e911Legacy: number;
   /** SMS-enabled numbers on the domain. */
@@ -543,6 +552,12 @@ export function resolveEmergency(snapshot: Snapshot): EmergencyModel {
  * blank inherits the domain default address, which is the new model working as designed. And a number
  * that IS an endpoint callback is the new model too — counting it here as well would bill a
  * half-migrated domain twice for one place.
+ *
+ * ⚠️ **The `em` must come from a snapshot whose endpoints were READ.** The third clause tests against
+ * `em.endpointCallbacks`, which is empty both when the domain has no endpoints and when nobody asked
+ * for them — so on a snapshot fetched without `includeAddresses` this answers "legacy" for every user
+ * on a fully-migrated domain. {@link listDomainInventory} refuses to derive the list at all in that
+ * state; a caller using this predicate directly has to make the same check.
  */
 export function legacyEmergencyNumber(user: Rec, em: EmergencyModel): string {
   if (str(user['emergency-address-id'])) return '';
@@ -686,11 +701,21 @@ export function listDomainInventory(snapshot: Snapshot, opts?: InventoryOptions)
   });
   // Legacy numbers are DERIVED — there is no record to map over. One entry per distinct number, in the
   // order the users first name it, so the list does not reshuffle between two reads of one domain.
+  //
+  // ⚠️ ONLY when the endpoint list was actually READ. `snapshot.addressEndpoints` is `undefined` when
+  // the fetch never asked for it and `[]` when it asked and the domain has none, and the difference
+  // decides whether this list can exist at all: the legacy test excludes numbers that are already
+  // endpoint callbacks, and with no endpoint list there is nothing to exclude against — so a domain
+  // fully on the ENDPOINT model, read with `includeAddresses` off, would report every distinct
+  // emergency caller ID as a legacy line the carrier bills for. `e911Addresses` answering 0 in that
+  // state is a safe under-count; this answering N is a confident over-count that looks like real data.
   const legacyUsers = new Map<string, number>();
-  for (const u of users) {
-    if (isSystemUser(u)) continue;
-    const n = legacyEmergencyNumber(u, em);
-    if (n) legacyUsers.set(n, (legacyUsers.get(n) ?? 0) + 1);
+  if (Array.isArray(snapshot.addressEndpoints)) {
+    for (const u of users) {
+      if (isSystemUser(u)) continue;
+      const n = legacyEmergencyNumber(u, em);
+      if (n) legacyUsers.set(n, (legacyUsers.get(n) ?? 0) + 1);
+    }
   }
   const e911Legacy: LegacyE911Item[] = [...legacyUsers].map(([number, count]) => ({ key: `e911legacy:${number}`, number, users: count }));
   const smsNumbers: SmsItem[] = smsnumbers.map((s) => {
