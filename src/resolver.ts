@@ -47,11 +47,19 @@ const trim = (v: string, max = GREET_MAX): string => (v.length > max ? `${v.slic
  * keyed by the same suffixes. `r` is here without being in the legend on purpose: it is the conventional
  * NetSapiens+Ringotel app suffix, common enough to draw with a phone rather than a desk handset, but not
  * something NetSapiens ships, so it has no place in a table this library states as fact.
+ *
+ * **Both tables are prototype-free.** The key is a device-name suffix off a snapshot, so `constructor`,
+ * `toString` and `hasOwnProperty` are all reachable keys; on a plain object literal each of them answers
+ * with something inherited and truthy, and `?? 'desk phone'` then never fires. A `Map` would do as well;
+ * `Object.create(null)` keeps the lookup a subscript.
  */
-const SUFFIX_ICONS: Record<string, string> = { wp: '🌐', t: '💻', m: '📱', r: '📱' };
+const SUFFIX_ICONS: Record<string, string> = Object.assign(Object.create(null) as Record<string, string>,
+  { wp: '🌐', t: '💻', m: '📱', r: '📱' });
 /** Kinds for suffixes {@link DEFAULT_DEVICE_SUFFIXES} does not name. `r` for the reason above; anything
- *  else lower-cased (`b`, and the rest) is a desk phone, which is what an unadorned device usually is. */
-const SUFFIX_FALLBACK_KINDS: Record<string, string> = { r: 'app' };
+ *  else lower-cased (`b`, and the rest) is a desk phone, which is what an unadorned device usually is.
+ *  Prototype-free for the reason above. */
+const SUFFIX_FALLBACK_KINDS: Record<string, string> = Object.assign(Object.create(null) as Record<string, string>,
+  { r: 'app' });
 
 /**
  * Endpoint type by the agent-id / extension letter suffix (heuristic). The KIND comes from
@@ -63,13 +71,20 @@ const SUFFIX_FALLBACK_KINDS: Record<string, string> = { r: 'app' };
  * see ARCHITECTURE.md → NetSapiens routing model; this suffix guess is the cheap approximation. Note the
  * resolver reads the DEFAULT legend and takes no options: a call flow is drawn from a snapshot alone, and
  * a deployment's own suffixes reach the inventory through `InventoryOptions.deviceSuffixes` instead.
+ *
+ * Exported for its own test. Not on the package surface (`index.ts`) — it is an internal heuristic, and
+ * a consumer wanting the legend should read `DEFAULT_DEVICE_SUFFIXES`, which is the thing being stated.
  */
-function deviceKindBySuffix(suffix: string): { icon: string; kind: string } {
+export function deviceKindBySuffix(suffix: string): { icon: string; kind: string } {
   const k = suffix.toLowerCase();
   if (!k) return { icon: '', kind: '' };
+  // `Object.hasOwn` rather than a truthiness test: `DEFAULT_DEVICE_SUFFIXES` is a plain object, so
+  // `[k]` on an inherited name answers a function whose `.label` is undefined — which happens to fall
+  // through correctly, and would stop doing so the day an entry gained an optional field read here.
+  const entry = Object.hasOwn(DEFAULT_DEVICE_SUFFIXES, k) ? DEFAULT_DEVICE_SUFFIXES[k] : undefined;
   return {
     icon: SUFFIX_ICONS[k] ?? '📞',
-    kind: DEFAULT_DEVICE_SUFFIXES[k]?.label ?? SUFFIX_FALLBACK_KINDS[k] ?? 'desk phone',
+    kind: entry?.label ?? SUFFIX_FALLBACK_KINDS[k] ?? 'desk phone',
   };
 }
 

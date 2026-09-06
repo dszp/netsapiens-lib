@@ -449,6 +449,27 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
     ok(x.devices[0]!.suffix === '' && x.devices[0]!.kind === '', '[suffix] a name that does not start with the extension has no suffix');
   }
 
+  // A user with NO extension number. The suffix is the whole of the Teams test now, and a suffix needs
+  // an extension to come after — so a device NAMED a bare `t` is a handset, counted as one.
+  {
+    const x = listDomainInventory({
+      meta: { domain: 'suffix.example' },
+      users: [{ user: '', 'user-scope': 'Basic User', 'service-code': '' }],
+      devicesByUser: { '': [dev('t', 'Yealink T54W')] },
+    } as Snapshot).extensions[0]!;
+    ok(x.devices[0]!.suffix === '' && x.devices[0]!.kind === '', '[suffix] a device named a bare t on a blank extension has no suffix');
+    ok(x.teams === false && x.devices[0]!.teams === false, '[suffix] so it is not a Teams connector');
+    ok(x.deviceCount === 1 && x.deviceModels[0] === 'Yealink T54W', '[suffix] and it is counted as the handset it reads as');
+  }
+
+  // The legend is keyed by a device-name suffix off a snapshot, so an inherited Object name is a
+  // reachable key. On a plain object `legend['constructor']` answers a function rather than undefined.
+  for (const evil of ['constructor', 'toString', 'hasOwnProperty']) {
+    const x = one(sufSnap([dev(`1001${evil}`)]));
+    ok(x.devices[0]!.kind === '' && x.devices[0]!.teams === false,
+      `[suffix] a suffix named ${evil} reads as unknown rather than picking up an inherited value`);
+  }
+
   ok(DEFAULT_DEVICE_SUFFIXES.t!.teams === true && DEFAULT_DEVICE_SUFFIXES.wp!.teams === undefined,
     '[suffix] the exported default marks only t as the Teams connector');
 }

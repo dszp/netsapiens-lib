@@ -178,7 +178,7 @@ export type DeviceSuffixLegend = Record<string, { label: string; teams?: boolean
  * A deployment's OWN suffixes (a white-labelled app, say) are not here and never will be: they belong to
  * the operator, who supplies them through {@link InventoryOptions.deviceSuffixes}.
  */
-export const DEFAULT_DEVICE_SUFFIXES: DeviceSuffixLegend = Object.freeze({
+export const DEFAULT_DEVICE_SUFFIXES: Readonly<DeviceSuffixLegend> = Object.freeze({
   wp: { label: 'SNAPmobile Web' },
   m: { label: 'SNAPmobile' },
   t: { label: 'Teams', teams: true },
@@ -303,7 +303,10 @@ function deviceName(device: Rec): string {
  */
 function suffixLegend(opts: InventoryOptions | undefined): DeviceSuffixLegend {
   const src = opts?.deviceSuffixes ?? DEFAULT_DEVICE_SUFFIXES;
-  const out: DeviceSuffixLegend = {};
+  // Prototype-free: the key is a device-name suffix off a snapshot, so `constructor`, `toString` and
+  // `hasOwnProperty` are all reachable keys, and on a plain object each would answer with something
+  // inherited. `Object.entries` copies own enumerable keys only, so nothing inherited gets in either.
+  const out: DeviceSuffixLegend = Object.create(null) as DeviceSuffixLegend;
   for (const [k, v] of Object.entries(src)) out[k.trim().toLowerCase()] = v;
   return out;
 }

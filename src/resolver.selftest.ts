@@ -6,7 +6,7 @@
  * cross-queue priority. Queue priority (lower = higher) is shown once when the queue
  * shares one non-default value, per-agent when it varies, and hidden at the default (0).
  */
-import { resolveFlow } from './resolver.js';
+import { deviceKindBySuffix, resolveFlow } from './resolver.js';
 import type { Snapshot, FlowGraph, NodeKind } from './model.js';
 
 let pass = 0,
@@ -219,6 +219,27 @@ const linesOf = (g: FlowGraph, kind: NodeKind) => (g.nodes.find((n) => n.kind ==
     g.edges.some((e) => e.from === 'aaannounce_9000_900014' && e.label === 'then' && g.nodes.find((n) => n.id === e.to)?.kind === 'hangup'),
   );
   check('announce: no message node is left without an outgoing edge', ['aaannounce_9000_900013', 'aaannounce_9000_900014'].every((id) => g.edges.some((e) => e.from === id)));
+}
+
+// ── the device-suffix legend, as the resolver reads it ──────────────────────────────────────────────
+// The KINDS come from DEFAULT_DEVICE_SUFFIXES so a suffix means one thing across the library; the icons
+// and two fallbacks are the resolver's own. Asserted here because a diagram is where the labels are SEEN,
+// and a drift between this and the inventory's legend would show up nowhere else.
+{
+  const k = (s: string) => deviceKindBySuffix(s);
+  check('suffix wp reads the legend label SNAPmobile Web, with the resolver\'s globe', k('wp').kind === 'SNAPmobile Web' && k('wp').icon === '🌐');
+  check('suffix m reads SNAPmobile', k('m').kind === 'SNAPmobile' && k('m').icon === '📱');
+  check('suffix t reads Teams', k('t').kind === 'Teams' && k('t').icon === '💻');
+  check('an upper-case suffix reads the same', k('WP').kind === 'SNAPmobile Web' && k('T').kind === 'Teams');
+  check('suffix r is the resolver\'s own fallback, not the legend\'s', k('r').kind === 'app' && k('r').icon === '📱');
+  check('any other letter is a desk phone', k('b').kind === 'desk phone' && k('b').icon === '📞');
+  check('no suffix is no kind and no icon', k('').kind === '' && k('').icon === '');
+  // The key is a device-name suffix off a snapshot, so an inherited Object name is a reachable key. On a
+  // plain object literal `SUFFIX_ICONS['constructor']` answers a function and `?? '📞'` never fires.
+  for (const evil of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+    check(`a suffix named ${evil} falls to the defaults rather than an inherited value`,
+      k(evil).kind === 'desk phone' && k(evil).icon === '📞');
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
