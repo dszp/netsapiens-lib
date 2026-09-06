@@ -38,6 +38,30 @@
  * case-insensitively, and on nothing else — not the `dial-rule-description`, which is a portal-written
  * note an operator can edit. **With no hosts supplied nothing is a fax line**, because a library that
  * hardcoded one deployment's fax server would be wrong everywhere else.
+ *
+ * ## E911: the ENDPOINT is the billable unit, the address is a location
+ *
+ * An **Emergency Endpoint** is a callback number, a caller name, a billing address and a vendor. It is
+ * what the E911 carrier routes on and what it bills per, and it is counted as `e911Endpoints`. An
+ * **Emergency Address** is a dispatchable location forwarded to responders; several of them can sit
+ * under one endpoint, and nobody bills them. `e911Addresses` stays, as information.
+ *
+ * Users, devices and sites point at an endpoint through their Emergency Caller ID
+ * (`caller-id-number-emergency`) matching the endpoint's callback number. A user with a blank one
+ * inherits the DOMAIN DEFAULT address's endpoint, and a user with a blank `emergency-address-id`
+ * inherits the domain default address itself — see {@link resolveEmergency}, which is where both
+ * inheritances live so the counter and `attribution.ts` cannot disagree about them.
+ *
+ * ## Legacy emergency numbers, which have no API object at all
+ *
+ * A domain still on the legacy provisioning model has no endpoint records. Every one of its users
+ * carries an EMPTY `emergency-address-id` and a `caller-id-number-emergency` set to one of a handful of
+ * DIDs — and the carrier bills per one of those DIDs, exactly as it bills per endpoint on the new
+ * model. `e911Legacy` is therefore the count of DISTINCT such numbers, and a rulebook can count the two
+ * dimensions together so one retail E911 line pays for either model.
+ *
+ * A number that IS an endpoint callback is excluded, because a half-migrated domain that counted it in
+ * both dimensions would bill the same place twice.
  */
 import type { Rec, Snapshot } from './model.js';
 
@@ -80,8 +104,18 @@ export interface DomainInventory {
    * numbers this returned before 0.7.0, unchanged.
    */
   dids: { total: number; tollFree: number; local: number; fax: number; all: number };
-  /** E911 address records on the domain. */
+  /**
+   * E911 address records on the domain — dispatchable LOCATIONS, and information only. The billable
+   * unit is {@link DomainInventory.e911Endpoints}; see the module doc.
+   */
   e911Addresses: number;
+  /** Provisioned Emergency Endpoints — the unit the E911 carrier bills per. */
+  e911Endpoints: number;
+  /**
+   * Distinct legacy emergency numbers — the pre-endpoint model, which has no API object of its own.
+   * Comparable with {@link DomainInventory.e911Endpoints} and never overlapping it; see the module doc.
+   */
+  e911Legacy: number;
   /** SMS-enabled numbers on the domain. */
   smsNumbers: number;
   /** Devices belonging to real extensions only — a system user's device is not a seat. */
@@ -154,8 +188,40 @@ export interface NumberItem {
   description: string;
 }
 export interface AddressItem { key: string /* addr:<emergency-address-id>, or addr:~<hash> when the id is blank */; label: string }
+/**
+ * One provisioned Emergency Endpoint — the thing the E911 carrier bills per.
+ *
+ * An allowlist like every other item: the callback, the caller name, and the billing address reduced to
+ * the ONE line {@link AddressItem} already exposes. The endpoint record also carries a geolocation XML
+ * and a public IP, and neither belongs in front of a billing operator.
+ */
+export interface EndpointItem {
+  /** `e911:<callback>` — the digits, so a device's 11-digit form and the record's 10-digit form are one
+   *  key. `e911:~<hash>` when the record names no callback at all. */
+  key: string;
+  /** The callback number, digits only ({@link emergencyDigits}); `''` when the record has none. */
+  callback: string;
+  /** `caller-name` — who the carrier announces; `''` when blank. */
+  callerName: string;
+  /** Street and city, one line — no more of the billing address than the address list already shows. */
+  billingAddress: string;
+  /** How many users the RECORD says are configured on it (`count-users-configured`), 0 when it says nothing. */
+  users: number;
+}
+/**
+ * One legacy emergency number: a `caller-id-number-emergency` in use on a domain that has no endpoint
+ * records for it. Derived from the users, because the legacy model has no object of its own to read.
+ */
+export interface LegacyE911Item {
+  /** `e911legacy:<digits>`. Never a hash fallback — a blank number is not one of these. */
+  key: string;
+  /** The number, digits only ({@link emergencyDigits}). */
+  number: string;
+  /** How many real extensions reference it — counted here, not read off a record. */
+  users: number;
+}
 export interface SmsItem { key: string /* sms:<number>, or sms:~<hash> when the number is blank */; number: string }
-export type InventoryItem = ExtensionItem | NumberItem | AddressItem | SmsItem;
+export type InventoryItem = ExtensionItem | NumberItem | AddressItem | EndpointItem | LegacyE911Item | SmsItem;
 
 export interface DomainInventoryDetail {
   /** Real seats only, same rule as the count. */
@@ -164,6 +230,8 @@ export interface DomainInventoryDetail {
   systemUsers: ExtensionItem[];
   dids: NumberItem[];
   e911Addresses: AddressItem[];
+  e911Endpoints: EndpointItem[];
+  e911Legacy: LegacyE911Item[];
   smsNumbers: SmsItem[];
 }
 
@@ -280,6 +348,25 @@ function isFaxLine(p: Rec, hosts: Set<string>): boolean {
 }
 
 /**
+ * An Emergency Caller ID reduced to what two records can be compared on: its digits, with an 11-digit
+ * `1NXXNXXXXXX` collapsed to its 10-digit form so a device's spelling matches an endpoint's.
+ *
+ * `''` for "not set", which the API says three ways: empty, absent, and the `[*]` wildcard the portal
+ * renders as "Select a Caller ID for 911 calls". Treating `[*]` as a value would give every unset
+ * device on a domain one shared fake endpoint.
+ */
+export function emergencyDigits(v: unknown): string {
+  const raw = str(v);
+  if (!raw || raw === '[*]') return '';
+  const digits = raw.replace(/\D+/g, '');
+  if (!digits) return '';
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+}
+
+/** A NetSapiens boolean, which arrives as a JSON `true` from one endpoint and as `"yes"` from another. */
+const flag = (v: unknown): boolean => v === true || ['yes', 'true', '1'].includes(str(v).toLowerCase());
+
+/**
  * A device's NAME — the local part of its SIP URI (`sip:103t@acme.example` → `103t`), which is the short
  * id the portal shows and the string the Teams test matches against.
  *
@@ -378,6 +465,89 @@ export function usersByExt(users: Rec[]): Map<string, Rec> {
     if (ext && !map.has(ext)) map.set(ext, u);
   }
   return map;
+}
+
+/**
+ * How a domain's E911 records join up, and the two INHERITANCES a raw record does not show.
+ *
+ * Both the counter and `attribution.ts` need to answer "which endpoint does this user reference?" and
+ * "which address?", and a blank field on the user is not the same as no answer — the portal falls back
+ * to the domain default. Resolved in one place so the count and the site attribution cannot disagree
+ * about who references what.
+ *
+ * ⚠️ **The default address's callback is joined by `address-name`.** An address record carries no
+ * callback field of its own (verified against a live domain and 34 captured snapshots), so the only
+ * thing tying the domain default to an endpoint is that the endpoint names the same address. Every
+ * captured domain that had both agreed on that name. A domain whose endpoint names its address
+ * differently resolves to `''` here, which reads as "no default callback" — the users who would have
+ * inherited it stay unattributed rather than being attached to a guess.
+ */
+export interface EmergencyModel {
+  /** The `emergency-address-id` of the record marked `domain_default`; `''` when the domain has none. */
+  defaultAddressId: string;
+  /** The callback of the endpoint bound to the DEFAULT address, digits only; `''` when there is none. */
+  defaultCallback: string;
+  /** Every provisioned endpoint's callback, digits only — the "is this number already an endpoint?" test. */
+  endpointCallbacks: Set<string>;
+  /** Which address a user references: their own field, the domain default when it is blank. */
+  addressIdFor: (user: Rec) => string;
+  /** The callback a user SETS: their own field, else any of their devices'; `''` when neither does. */
+  setCallbackFor: (user: Rec) => string;
+  /** Which endpoint a user references: {@link EmergencyModel.setCallbackFor}, else the domain default's. */
+  callbackFor: (user: Rec) => string;
+}
+
+export function resolveEmergency(snapshot: Snapshot): EmergencyModel {
+  const addresses: Rec[] = Array.isArray(snapshot.addresses) ? snapshot.addresses : [];
+  const endpoints: Rec[] = Array.isArray(snapshot.addressEndpoints) ? snapshot.addressEndpoints : [];
+  const devicesByUser: Record<string, Rec[]> = (snapshot.devicesByUser ?? {}) as Record<string, Rec[]>;
+
+  // First one wins. Two records marked default is a provisioning fault, and picking one of them
+  // silently is better than resolving every blank user to nothing because two records disagree.
+  const def = addresses.find((a) => flag(a['domain_default']));
+  const defaultAddressId = def ? str(def['emergency-address-id']) : '';
+  const defName = def ? str(def['address-name']).toLowerCase() : '';
+  const boundToDefault = defName ? endpoints.find((e) => str(e['address-name']).toLowerCase() === defName) : undefined;
+  // NB: on an ENDPOINT record `emergency-address-id` holds the callback NUMBER, not an address id.
+  const defaultCallback = boundToDefault ? emergencyDigits(boundToDefault['emergency-address-id']) : '';
+  const endpointCallbacks = new Set(endpoints.map((e) => emergencyDigits(e['emergency-address-id'])).filter(Boolean));
+
+  const setCallbackFor = (user: Rec): string => {
+    const own = emergencyDigits(user['caller-id-number-emergency']);
+    if (own) return own;
+    // A user who sets none can still have a handset that does — the portal reads the device's own
+    // setting first and only then the user's, so a domain whose numbers live on the devices is
+    // invisible to a rule that reads the user record alone.
+    for (const d of devicesByUser[str(user.user)] ?? []) {
+      const dev = emergencyDigits(d['caller-id-number-emergency']);
+      if (dev) return dev;
+    }
+    return '';
+  };
+
+  return {
+    defaultAddressId,
+    defaultCallback,
+    endpointCallbacks,
+    addressIdFor: (user) => str(user['emergency-address-id']) || defaultAddressId,
+    setCallbackFor,
+    callbackFor: (user) => setCallbackFor(user) || defaultCallback,
+  };
+}
+
+/**
+ * Is this user on the LEGACY emergency model — a caller ID set by hand, with no address record behind
+ * it and no endpoint provisioned for the number?
+ *
+ * All three clauses matter. A blank `emergency-address-id` alone is not legacy: a user with BOTH fields
+ * blank inherits the domain default address, which is the new model working as designed. And a number
+ * that IS an endpoint callback is the new model too — counting it here as well would bill a
+ * half-migrated domain twice for one place.
+ */
+export function legacyEmergencyNumber(user: Rec, em: EmergencyModel): string {
+  if (str(user['emergency-address-id'])) return '';
+  const n = em.setCallbackFor(user);
+  return n && !em.endpointCallbacks.has(n) ? n : '';
 }
 
 /**
@@ -495,11 +665,39 @@ export function listDomainInventory(snapshot: Snapshot, opts?: InventoryOptions)
       label: label || id || `(address ${i + 1})`,
     };
   });
+  // The two E911 lists share one resolution of the domain's inheritance — see `resolveEmergency`.
+  const em = resolveEmergency(snapshot);
+  const endpoints: Rec[] = Array.isArray(snapshot.addressEndpoints) ? snapshot.addressEndpoints : [];
+  const e911Endpoints: EndpointItem[] = endpoints.map((e) => {
+    // NB: `emergency-address-id` on an ENDPOINT record is the callback NUMBER. See `Snapshot`.
+    const callback = emergencyDigits(e['emergency-address-id']);
+    const callerName = str(e['caller-name']);
+    const line1 = str(e['address-line-1']);
+    const city = str(e['address-city']);
+    return {
+      key: identityKey('e911', callback, `${callerName} ${line1} ${city}`),
+      callback,
+      callerName,
+      billingAddress: [line1, city].filter(Boolean).join(', '),
+      // `count-users-configured` and NOT `sub_count_total`: the two disagree on live records (a
+      // captured endpoint had 0 and 16), and only the first one names what it counts.
+      users: Number(e['count-users-configured'] ?? 0) || 0,
+    };
+  });
+  // Legacy numbers are DERIVED — there is no record to map over. One entry per distinct number, in the
+  // order the users first name it, so the list does not reshuffle between two reads of one domain.
+  const legacyUsers = new Map<string, number>();
+  for (const u of users) {
+    if (isSystemUser(u)) continue;
+    const n = legacyEmergencyNumber(u, em);
+    if (n) legacyUsers.set(n, (legacyUsers.get(n) ?? 0) + 1);
+  }
+  const e911Legacy: LegacyE911Item[] = [...legacyUsers].map(([number, count]) => ({ key: `e911legacy:${number}`, number, users: count }));
   const smsNumbers: SmsItem[] = smsnumbers.map((s) => {
     const number = str(s.number);
     return { key: identityKey('sms', number, JSON.stringify({ number })), number };
   });
-  return { extensions, systemUsers, dids, e911Addresses, smsNumbers };
+  return { extensions, systemUsers, dids, e911Addresses, e911Endpoints, e911Legacy, smsNumbers };
 }
 
 /** The counts, as a fold over {@link listDomainInventory} so the two can never disagree. */
@@ -519,6 +717,11 @@ export function countInventoryDetail(d: DomainInventoryDetail): DomainInventory 
     teamsConnected: 0,
     dids: { total: 0, tollFree: 0, local: 0, fax: 0, all: d.dids.length },
     e911Addresses: d.e911Addresses.length,
+    // `?? []` on the two newest lists alone: a detail object cached or serialised by a consumer running
+    // an older version of this library has neither field, and a count that threw on it would take out a
+    // whole page over a dimension that did not exist when the entry was written.
+    e911Endpoints: (d.e911Endpoints ?? []).length,
+    e911Legacy: (d.e911Legacy ?? []).length,
     smsNumbers: d.smsNumbers.length,
     devices: { total: 0, byModel: {} },
   };
@@ -574,6 +777,8 @@ export function itemsFor(detail: DomainInventoryDetail, path: string): Inventory
   if (path === 'dids.fax') return detail.dids.filter((n) => n.fax);
   if (path === 'dids.all') return detail.dids;
   if (path === 'e911Addresses') return detail.e911Addresses;
+  if (path === 'e911Endpoints') return detail.e911Endpoints ?? [];
+  if (path === 'e911Legacy') return detail.e911Legacy ?? [];
   if (path === 'smsNumbers') return detail.smsNumbers;
   return undefined;
 }
@@ -586,5 +791,15 @@ export function itemLabel(item: InventoryItem): string {
   }
   if ('kind' in item) return item.kind === 'tollFree' ? `${item.number} (toll-free)` : item.number;
   if ('label' in item) return item.label;
+  // An ENDPOINT is named by the number the carrier bills, then by who it announces and where it sends
+  // responders. Both halves are dropped when blank rather than printed as a dangling dash: a record
+  // with neither is still a row an operator has to decide about.
+  if ('callback' in item) {
+    const who = [item.callerName, item.billingAddress].filter(Boolean).join(', ');
+    return who ? `${item.callback} — ${who}` : item.callback;
+  }
+  // A LEGACY number says so on its own line: it looks like a DID, and nothing else on the page would
+  // tell a reader why a bare number is sitting on an E911 row.
+  if ('users' in item) return `${item.number} — legacy E911 (${item.users} users)`;
   return item.number;
 }
