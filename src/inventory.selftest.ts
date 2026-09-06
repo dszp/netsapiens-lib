@@ -596,6 +596,38 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(countDomainInventory(withDefault).e911Legacy === 0, '[legacy] both fields blank is the domain default, not a legacy number');
   const em = resolveEmergency(withDefault);
   ok(legacyEmergencyNumber(withDefault.users![0]!, em) === '', '[legacy] and the predicate says so directly');
+
+  // A user who SETS an emergency address is on the new model whatever their caller ID says — even when
+  // that number matches no endpoint this snapshot can see. Without the address-id clause of
+  // `legacyEmergencyNumber` this reads as a legacy line, and the account is billed for one.
+  const addressed = {
+    ...legacy,
+    users: [{ user: '120', 'service-code': '', site: 'North', 'emergency-address-id': 'a-9', 'caller-id-number-emergency': '3175550777' }],
+    devicesByUser: {},
+    addresses: [{ 'emergency-address-id': 'a-9', 'address-name': 'HQ', domain_default: true }],
+    addressEndpoints: [{ 'emergency-address-id': '3175550300', 'address-name': 'HQ', 'caller-name': 'Demo HQ' }],
+  } as Snapshot;
+  ok(countDomainInventory(addressed).e911Legacy === 0,
+    '[legacy] a user with a SET emergency address is never legacy, whatever its caller ID matches');
+  ok(legacyEmergencyNumber(addressed.users![0]!, resolveEmergency(addressed)) === '',
+    '[legacy] and the predicate refuses it on the address id alone, not on the number');
+}
+
+{
+  // ── the USER's own caller ID wins over its devices' ────────────────────────────────────────────
+  // The device is consulted only where the user sets nothing. Reversing the two would attribute the
+  // seat to whichever handset happened to be first in the record, which is not what the portal does.
+  const both = {
+    meta: { domain: 'acme.example' },
+    users: [{ user: '100', 'service-code': '', 'caller-id-number-emergency': '3175550100' }],
+    devicesByUser: { '100': [{ device: 'sip:100@acme.example', 'caller-id-number-emergency': '3175550101' }] },
+    addressEndpoints: [],
+  } as Snapshot;
+  ok(resolveEmergency(both).setCallbackFor(both.users![0]!) === '3175550100',
+    '[e911] a user carrying its own caller ID wins over a device carrying a different one');
+  const deviceOnly = { ...both, users: [{ user: '100', 'service-code': '' }] } as Snapshot;
+  ok(resolveEmergency(deviceOnly).setCallbackFor(deviceOnly.users![0]!) === '3175550101',
+    '[e911] and the device is read only where the user sets nothing');
 }
 
 {
