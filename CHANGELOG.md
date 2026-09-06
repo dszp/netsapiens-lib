@@ -5,6 +5,24 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.0 — 2026-09-05
+
+### Changed
+
+- `dids.total`, `dids.tollFree` and `dids.local` now **exclude fax lines** when fax-server hosts are configured. A number handed to the fax server is billed as a fax line, not as a DID, and counting it as both would bill one number twice on a rulebook with a rule for each. `itemsFor('dids.total'|'dids.tollFree'|'dids.local')` excludes them to match — an item list longer than the count above it is a list of rows an operator cannot act on. With no hosts supplied nothing is a fax line and every one of those numbers is what it was in 0.6.0.
+- `destinationOf(p, userByExt, faxServerHosts?)` takes an optional third argument. A fax line reads `to fax server`, host omitted: the alternative was `to connection`, which names plumbing rather than a destination, or a bare IP address printed beside a customer's phone number.
+
+### Added
+
+- `listDomainInventory(snapshot, opts?)` and `countDomainInventory(snapshot, opts?)` take `InventoryOptions` — today just `faxServerHosts`, the hosts a fax line is handed to. Matched on the trimmed `dial-rule-translation-destination-host`, case-insensitively, and on nothing else: never the `dial-rule-description`, which an operator can edit. **No host list, no fax lines** — a library that hardcoded one deployment's fax server would be wrong everywhere else. `attributeDomainInventory` is unchanged.
+- `NumberItem.fax`: this number is handed to a fax server. Its `kind` is still set — a fax number is local or toll-free like any other — and its key is unchanged, so routing an existing number to the fax server does not orphan a decision recorded against it.
+- `DomainInventory.dids.fax` and `.all`: the fax lines, and every phone number including them. `total + fax === all`.
+- `itemsFor` paths `dids.fax` and `dids.all`.
+
+### Fixed
+
+- **A device's NAME is read from `device`, falling back to `aor`.** A live `/users/<ext>/devices` record names the device in `device` and frequently carries no `aor` at all, so reading `aor` alone returned `''` for every device on live data — which blanked `ExtensionItem.devices[].name` and, worse, broke the `<ext>t` Microsoft Teams test: a connector read as `teams: false` and was counted as a handset, so `teamsConnected` under-reported and `deviceCount`, `deviceModels`, `extensions.byDeviceCount` and `devices.total` all over-reported on any domain with a TeamMate connector. Where a record carries both fields, `device` wins. A snapshot carrying only `aor` is unaffected.
+
 ## 0.6.0 — 2026-09-05
 
 ### Changed

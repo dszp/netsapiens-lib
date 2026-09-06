@@ -79,7 +79,7 @@ genuine zero from a read that never completed rather than silently undercounting
 
 ### Counting a domain: `countDomainInventory`
 
-`countDomainInventory(snapshot)` is pure — it fetches nothing, and turns a `Snapshot` (from
+`countDomainInventory(snapshot, opts?)` is pure — it fetches nothing, and turns a `Snapshot` (from
 `fetchDomainSnapshot`, a backup, or a fixture) into a fixed tree of numeric leaves along the dimensions a
 VoIP operator actually sells on:
 
@@ -92,7 +92,8 @@ VoIP operator actually sells on:
 - `transcriptionEnabled` — extensions with voicemail transcription on.
 - `teamsConnected` — extensions with a Microsoft Teams connector device (SIP `aor` local part
   `<ext>t`). That connector is excluded from `devices`/`deviceCount`: it is a connector, not a handset.
-- `dids` — phone numbers, `total` / `tollFree` / `local`.
+- `dids` — phone numbers: `total` / `tollFree` / `local`, all three **excluding fax lines**, plus
+  `fax` and `all` (everything, `total + fax === all`). See [Fax lines](#fax-lines).
 - `e911Addresses`, `smsNumbers` — record counts.
 - `devices` — `total` and `byModel`, real extensions only (a system user's device is not a seat).
 
@@ -116,9 +117,33 @@ inventory.dids.tollFree;      // e.g. 3
 inventory.devices.byModel;    // e.g. { "Yealink T54W": 12, "(unknown)": 1 }
 ```
 
+#### Fax lines
+
+On the portal's **Fax Server** treatment a fax line is an ordinary phone number whose dial rule hands it
+to a fax server: `dial-rule-application: to-connection` and `dial-rule-translation-destination-host` set
+to that server's host. The API has no fax-account endpoint and the ATA is not a device on any user, so
+that host is the only thing that says "fax line" — and nothing in the API distinguishes an analog fax
+from a digital one.
+
+The host belongs to your deployment, so you supply it; **with no hosts, nothing is a fax line** and the
+counts are exactly what they were before 0.7.0:
+
+```ts
+const inventory = countDomainInventory(snapshot, { faxServerHosts: ['203.0.113.7'] });
+inventory.dids.fax;    // 2 — billed as fax lines
+inventory.dids.total;  // the DIDs, those two NOT among them
+inventory.dids.all;    // total + fax
+```
+
+Matching is on the trimmed host, case-insensitively, and on nothing else — never the
+`dial-rule-description`, which is a note the portal writes and an operator can edit. A fax line's
+`NumberItem.fax` is `true`, its `destination` reads `to fax server` (the host is deliberately not shown),
+and it keeps its `kind`: a fax number is local or toll-free like any other, it is simply not counted as a
+DID.
+
 #### Listing a domain: `listDomainInventory`
 
-`countDomainInventory` is a fold over `listDomainInventory(snapshot)`, which returns the per-item lists
+`countDomainInventory` is a fold over `listDomainInventory(snapshot, opts?)` (same options), which returns the per-item lists
 behind those counts — for anything that shows an operator *which* extension or number a count refers to,
 not just how many. Same allowlist discipline as the counts: a device's MAC, SIP credentials and email
 never appear, though names and sites now do (that's the point of a list). Each item carries a stable
@@ -131,8 +156,9 @@ never appear, though names and sites now do (that's the point of a list). Each i
 | `e911Addresses` | `addr:<emergency-address-id>` |
 | `smsNumbers` | `sms:<number>` |
 
-A number carries `destination` — where it routes, in words (`to user 100 — Ann Lee`, `to queue 701 —
-Sales`), built by the exported `destinationOf(p, userByExt)` over `usersByExt(users)` — and `description`
+A number carries `fax` (see [Fax lines](#fax-lines)) and `destination` — where it routes, in words
+(`to user 100 — Ann Lee`, `to queue 701 — Sales`, `to fax server`), built by the exported
+`destinationOf(p, userByExt, faxServerHosts?)` over `usersByExt(users)` — and `description`
 (`dial-rule-description`, trimmed); an extension carries `devices`, an `{ name, model, teams }` per
 device it has (handset and Teams connector alike), in record order — still never the MAC, SIP password
 or email.
@@ -150,7 +176,9 @@ no separate lookup table:
 | `extensions.withAnyDevice` / `extensions.withNoDevice` | extensions with / without any device (handset or Teams connector) |
 | `transcriptionEnabled` | extensions with transcription on |
 | `teamsConnected` | extensions with a Teams connector |
-| `dids.total` / `dids.tollFree` / `dids.local` | phone numbers |
+| `dids.total` / `dids.tollFree` / `dids.local` | phone numbers, **fax lines excluded** |
+| `dids.fax` | fax lines |
+| `dids.all` | every phone number, fax lines included |
 | `e911Addresses` | E911 addresses |
 | `smsNumbers` | SMS numbers |
 

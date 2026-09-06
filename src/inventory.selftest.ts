@@ -60,6 +60,7 @@ ok(inv.transcriptionEnabled === 2, 'yes and a provider name both count; no and a
 ok(inv.dids.total === 4, 'four phone numbers');
 ok(inv.dids.tollFree === 2, '800 and 833 are toll-free');
 ok(inv.dids.local === 2, 'and the rest are local');
+ok(inv.dids.fax === 0 && inv.dids.all === 4, 'no fax-server hosts were supplied, so nothing is a fax line and all equals total');
 ok(inv.e911Addresses === 2, 'two address records');
 ok(inv.smsNumbers === 1, 'one SMS number');
 ok(inv.devices.total === 5, 'five devices across all extensions');
@@ -71,6 +72,7 @@ ok(inv.devices.byModel['(unknown)'] === 1, 'a device with no model is counted un
 const empty = countDomainInventory({ meta: { domain: 'empty.example' } } as Snapshot);
 ok(empty.extensions.total === 0, 'empty snapshot: no extensions');
 ok(empty.dids.total === 0 && empty.dids.tollFree === 0 && empty.dids.local === 0, 'empty snapshot: no numbers');
+ok(empty.dids.fax === 0 && empty.dids.all === 0, 'empty snapshot: no fax lines either');
 ok(empty.devices.total === 0, 'empty snapshot: no devices');
 ok(empty.smsNumbers === 0 && empty.e911Addresses === 0, 'empty snapshot: no addresses and no SMS numbers');
 
@@ -141,6 +143,7 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(c.extensions.withAnyDevice + c.extensions.withNoDevice === c.extensions.total, '[fold] the two presence leaves partition the total');
   ok(c.dids.total === d.dids.length, '[fold] dids.total equals the number list length');
   ok(c.dids.tollFree === d.dids.filter((n) => n.kind === 'tollFree').length, '[fold] dids.tollFree equals the toll-free items');
+  ok(c.dids.all === d.dids.length && c.dids.fax === d.dids.filter((n) => n.fax).length, '[fold] dids.all is the whole list and dids.fax the fax lines in it');
   ok(c.e911Addresses === d.e911Addresses.length && c.smsNumbers === d.smsNumbers.length, '[fold] address and SMS counts equal the lists');
 }
 
@@ -171,6 +174,129 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   ok(itemLabel(d.dids[2]!) === '18005550102 (toll-free)', '[label] number with kind');
   ok(itemLabel(d.e911Addresses[0]!) === 'HQ — 1 Main St, Springfield', '[label] address is its label');
   ok(itemLabel(d.smsNumbers[0]!) === '13175550100', '[label] SMS is its number');
+}
+
+// ── a device is named by `device`, and only falls back to `aor` ──────────────────────────────────────
+// A LIVE /users/<ext>/devices record names the device in `device` and frequently carries no `aor` at all.
+// Reading `aor` alone blanked every device name and — worse — broke the `<ext>t` Teams test, so a Teams
+// connector read as a handset and inflated deviceCount, devices.total and byDeviceCount while
+// teamsConnected read zero. That is the shape this block pins.
+{
+  const live = {
+    meta: { domain: 'live.example' },
+    users: [
+      { user: '1001', 'user-scope': 'Basic User', 'service-code': '' },
+      { user: '1002', 'user-scope': 'Basic User', 'service-code': '' },
+      { user: '1003', 'user-scope': 'Basic User', 'service-code': '' },
+    ],
+    devicesByUser: {
+      // `device` only — the live shape.
+      '1001': [
+        { device: 'sip:1001a@live.example', 'device-models-model': 'Yealink T54W' },
+        { device: 'sip:1001t@live.example', 'device-models-model': 'Teams' },
+      ],
+      // BOTH, disagreeing: `device` wins, being the field the system names the device by.
+      '1002': [{ device: 'sip:1002a@live.example', aor: 'sip:wrong@live.example', 'device-models-model': 'Yealink T31P' }],
+      // NEITHER: the name is empty rather than guessed, and an empty name is not a `t`.
+      '1003': [{ 'device-models-model': 'Yealink T31P' }],
+    },
+  } as Snapshot;
+
+  const d = listDomainInventory(live);
+  const e1 = d.extensions.find((x) => x.ext === '1001')!;
+  ok(e1.devices[0]!.name === '1001a', '[device] a record with `device` and no `aor` is still named');
+  ok(e1.teams === true, '[device] and its <ext>t connector is detected — reading `aor` alone made this false on every live domain');
+  ok(e1.devices[1]!.teams === true && e1.devices[1]!.model === '', '[device] the connector row is marked and prints no model');
+  ok(e1.deviceCount === 1 && JSON.stringify(e1.deviceModels) === JSON.stringify(['Yealink T54W']),
+    '[device] so the connector is excluded from the handset count rather than inflating it');
+
+  const e2 = d.extensions.find((x) => x.ext === '1002')!;
+  ok(e2.devices[0]!.name === '1002a', '[device] where a record carries both, `device` wins');
+
+  const e3 = d.extensions.find((x) => x.ext === '1003')!;
+  ok(e3.devices[0]!.name === '', '[device] a record with neither field has an empty name, not "undefined"');
+  ok(e3.teams === false && e3.deviceCount === 1, '[device] and an unnamed device is a handset, never a connector');
+
+  const c = countDomainInventory(live);
+  ok(c.teamsConnected === 1, '[device] teamsConnected counts the one connector');
+  ok(c.devices.total === 3, '[device] and devices.total is the three handsets, the connector excluded');
+
+  // The `aor`-only fixture at the top of this file still behaves exactly as it did — the fallback is a
+  // fallback, not a replacement.
+  ok(listDomainInventory(snap).extensions.find((x) => x.ext === '103')!.teams === true,
+    '[device] a record carrying only `aor` is unchanged');
+}
+
+// ── fax lines ────────────────────────────────────────────────────────────────────────────────────────
+// The portal's "Fax Server" treatment is an ordinary phone number whose dial rule hands it to a host:
+// to-connection, plus dial-rule-translation-destination-host. There is no fax endpoint in the API and
+// the ATA is not a device on any user, so the host is the only thing that says "fax line" — and the host
+// belongs to the deployment, not to this library, which is why it arrives as an option.
+{
+  const faxSnap = {
+    meta: { domain: 'fax.example' },
+    users: [{ user: '100', 'user-scope': 'Basic User', 'service-code': '', 'name-first-name': 'Ann', 'name-last-name': 'Lee' }],
+    phonenumbers: [
+      { phonenumber: '13175550100', 'dial-rule-translation-destination-user': '100' },
+      {
+        phonenumber: '13175550199',
+        'dial-rule-application': 'to-connection',
+        'dial-rule-translation-destination-host': '203.0.113.7',
+        'dial-rule-description': 'Portal Created: Phonenumber -> FaxServer',
+      },
+    ],
+  } as Snapshot;
+  const HOSTS = { faxServerHosts: ['203.0.113.7'] };
+
+  const d = listDomainInventory(faxSnap, HOSTS);
+  const fx = d.dids[1]!;
+  ok(fx.fax === true, '[fax] a number whose destination host is the fax server is a fax line');
+  ok(d.dids[0]!.fax === false, '[fax] and the one routed to a user is not');
+  ok(fx.kind === 'local', '[fax] a fax line still has a kind — it is a local or toll-free number like any other');
+  ok(fx.destination === 'to fax server', '[fax] its destination reads "to fax server" — never the bare host');
+  ok(!fx.destination.includes('203.0.113.7'), '[fax] the fax server address does not reach a reader');
+  ok(fx.description === 'Portal Created: Phonenumber -> FaxServer', '[fax] the portal note is carried as written; it is not what the test reads');
+
+  const c = countDomainInventory(faxSnap, HOSTS);
+  ok(c.dids.fax === 1, '[fax] dids.fax counts it');
+  ok(c.dids.total === 1 && c.dids.local === 1 && c.dids.tollFree === 0, '[fax] and dids.total/local/tollFree leave it out — it is billed as a fax line, not as a DID');
+  ok(c.dids.all === 2, '[fax] dids.all is every number, fax lines included');
+  ok(c.dids.total + c.dids.fax === c.dids.all, '[fax] total + fax partitions all');
+
+  const keys = (p: string) => (itemsFor(d, p) ?? []).map((x) => x.key).join(',');
+  ok(keys('dids.fax') === 'did:13175550199', '[fax] itemsFor dids.fax is the fax lines');
+  ok(keys('dids.total') === 'did:13175550100', '[fax] itemsFor dids.total excludes them, exactly as the count does');
+  ok(keys('dids.local') === 'did:13175550100', '[fax] and so does dids.local');
+  ok(keys('dids.all') === 'did:13175550100,did:13175550199', '[fax] dids.all is everything');
+  ok(itemLabel(fx) === '13175550199', '[fax] the label is unchanged — a fax line is named by its number like any other');
+
+  // The SAME snapshot with no hosts supplied. A library that guessed a fax server would be wrong on
+  // every deployment but the one it was written against, so it guesses nothing.
+  const bare = listDomainInventory(faxSnap);
+  ok(bare.dids[1]!.fax === false, '[fax] no hosts supplied, nothing is a fax line');
+  ok(bare.dids[1]!.destination === 'to connection', '[fax] and the destination falls back to the application');
+  const bareCounts = countDomainInventory(faxSnap);
+  ok(bareCounts.dids.fax === 0 && bareCounts.dids.total === 2 && bareCounts.dids.local === 2,
+    '[fax] the fax line is counted as the local DID it otherwise looks like');
+  ok(bareCounts.dids.all === bareCounts.dids.total, '[fax] all equals total when nothing is a fax line');
+  ok(countDomainInventory(faxSnap, { faxServerHosts: [] }).dids.fax === 0, '[fax] an empty host list is the same as none');
+  ok(countDomainInventory(faxSnap, { faxServerHosts: ['', '   '] }).dids.fax === 0, '[fax] and so is a list of blanks — a blank host must not match a number with no host');
+
+  // Host matching is trimmed and case-insensitive on BOTH sides: a hostname is not case-sensitive, and
+  // a comma-separated setting arrives with spaces around its entries.
+  const named = {
+    meta: { domain: 'fax2.example' },
+    phonenumbers: [{ phonenumber: '13175550198', 'dial-rule-application': 'to-connection', 'dial-rule-translation-destination-host': '  Fax.Example.COM  ' }],
+  } as Snapshot;
+  ok(countDomainInventory(named, { faxServerHosts: [' fax.example.com '] }).dids.fax === 1, '[fax] host matching trims and lower-cases both sides');
+  ok(countDomainInventory(named, { faxServerHosts: ['other.example.com'] }).dids.fax === 0, '[fax] a host that is not on the list is not a fax line');
+
+  // The description is a note the portal writes and an operator can edit, so it is never the test.
+  const noteOnly = {
+    meta: { domain: 'fax3.example' },
+    phonenumbers: [{ phonenumber: '13175550197', 'dial-rule-application': 'to-connection', 'dial-rule-description': 'Portal Created: Phonenumber -> FaxServer' }],
+  } as Snapshot;
+  ok(countDomainInventory(noteOnly, { faxServerHosts: ['203.0.113.7'] }).dids.fax === 0, '[fax] the "-> FaxServer" description alone does not make a fax line');
 }
 
 // ── blank identity fields never collide onto one key ─────────────────────────────────────────────────
@@ -251,6 +377,13 @@ ok(sysDev.devices.total === 0, 'a system user device is not counted');
   );
   ok(destinationOf({ 'dial-rule-application': 'to-connection' }, byExt) === 'to connection', '[destinationOf] no destination, application only — to- stripped so it does not read "to to-connection"');
   ok(destinationOf({}, byExt) === '', '[destinationOf] neither field set is empty, not "to undefined"');
+  const faxRule: Rec = { 'dial-rule-application': 'to-connection', 'dial-rule-translation-destination-host': '203.0.113.7' };
+  ok(destinationOf(faxRule, byExt) === 'to connection', '[destinationOf] with no host list a fax rule is just a connection');
+  ok(destinationOf(faxRule, byExt, ['203.0.113.7']) === 'to fax server', '[destinationOf] with the host on the list it reads "to fax server"');
+  ok(
+    destinationOf({ ...faxRule, 'dial-rule-translation-destination-user': '100' }, byExt, ['203.0.113.7']) === 'to fax server',
+    '[destinationOf] the fax test wins over a destination user, so no reader is shown a bare IP',
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

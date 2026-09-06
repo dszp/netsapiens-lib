@@ -9,9 +9,9 @@
  * A device record from NetSapiens carries the SIP registration password. `listDomainInventory` builds
  * per-item lists — an extension's name and site, a number's kind and routing destination, an address's
  * label — from an allowlist of named fields, and `countDomainInventory` is a fold over those same
- * lists. The allowlist now includes a device's NAME (its `aor` local part, e.g. `101b` — the same
- * short id the portal shows) alongside its model; a device's MAC, SIP password and email never appear,
- * and nothing here should be added that carries one.
+ * lists. The allowlist now includes a device's NAME (the local part of its `device` SIP URI, falling back
+ * to `aor` — e.g. `101b`, the same short id the portal shows) alongside its model; a device's MAC, SIP
+ * password and email never appear, and nothing here should be added that carries one.
  *
  * ## Every countable dimension is a numeric leaf
  *
@@ -24,6 +24,20 @@
  * A user whose `service-code` is empty or does not begin with `system-`. NetSapiens models auto
  * attendants, queues and time-of-day routers as users, and counting them as seats would overstate
  * every domain that has any. They are counted separately, as information, and never compared.
+ *
+ * ## What counts as a fax line
+ *
+ * On the portal's "Fax Server" treatment a number is an ordinary phone number whose dial rule hands it
+ * to a fax server host — `dial-rule-application: to-connection` with
+ * `dial-rule-translation-destination-host` set to that host. There is no fax-account endpoint and the
+ * ATA is not a device on any user, so the host is the only thing in the API that says "this is a fax
+ * line", and nothing in the API can tell an analog fax from a digital one.
+ *
+ * The host is therefore the whole test, and it is the CALLER's: pass `{ faxServerHosts }` to
+ * {@link listDomainInventory} or {@link countDomainInventory}. Matching is on the trimmed host,
+ * case-insensitively, and on nothing else — not the `dial-rule-description`, which is a portal-written
+ * note an operator can edit. **With no hosts supplied nothing is a fax line**, because a library that
+ * hardcoded one deployment's fax server would be wrong everywhere else.
  */
 import type { Rec, Snapshot } from './model.js';
 
@@ -47,13 +61,23 @@ export interface DomainInventory {
   /** Extensions whose `voicemail-transcription-enabled` is anything but empty or `no`. */
   transcriptionEnabled: number;
   /**
-   * Extensions with a Microsoft Teams connector device — one whose SIP `aor` local part is the
-   * extension number followed by `t` (`1000t`), which is how the TeamMate connector registers.
+   * Extensions with a Microsoft Teams connector device — one whose device NAME is the extension number
+   * followed by `t` (`1000t`), which is how the TeamMate connector registers. See {@link deviceName} for
+   * which field that name is read from, and why reading the wrong one silently miscounted this.
    * That device is NOT counted under `devices`: it is a connector, not a handset.
    */
   teamsConnected: number;
-  /** Phone numbers on the domain, split by NANP toll-free prefix. */
-  dids: { total: number; tollFree: number; local: number };
+  /**
+   * Phone numbers on the domain, split by NANP toll-free prefix — **fax lines excluded**.
+   *
+   * A number handed to the fax server is billed as a fax line, not as a DID, so `total`, `tollFree`
+   * and `local` all leave it out and `fax` counts it instead. `all` is every phone number the domain
+   * holds, fax lines included: `total + fax === all`.
+   *
+   * With no `faxServerHosts` supplied nothing is a fax line, `fax` is 0 and `total === all` — the
+   * numbers this returned before 0.7.0, unchanged.
+   */
+  dids: { total: number; tollFree: number; local: number; fax: number; all: number };
   /** E911 address records on the domain. */
   e911Addresses: number;
   /** SMS-enabled numbers on the domain. */
@@ -91,8 +115,9 @@ export interface ExtensionItem {
   /** `device-models-model` per handset, `(unknown)` when blank. Never the MAC. */
   deviceModels: string[];
   /**
-   * Every device on this extension, in record order, connector included: `name` is the `aor` local
-   * part (`sip:101b@acme.example` → `101b`) — the device NAME as the portal shows it — `model` is
+   * Every device on this extension, in record order, connector included: `name` is the local part of its
+   * `device` SIP URI, or of `aor` when that is all the record has (`sip:101b@acme.example` → `101b`) —
+   * the device NAME as the portal shows it — `model` is
    * `device-models-model` (`(unknown)` when blank on a handset, `''` for the Teams connector, which
    * has no model), and `teams` marks the connector entry itself. `deviceCount`/`deviceModels`/`teams`
    * above stay handset-only; this list is the one place a connector's own row shows up. Never the MAC
@@ -106,6 +131,14 @@ export interface NumberItem {
   key: string /* did:<phonenumber>, or did:~<hash> when the number is blank */;
   number: string;
   kind: 'local' | 'tollFree';
+  /**
+   * This number is handed to a fax server — see the module doc. `false` whenever the caller supplied no
+   * `faxServerHosts`, since without a host list nothing here can tell a fax line from any other number.
+   *
+   * `kind` is still set on a fax line (a fax number is local or toll-free like any other), but the
+   * COUNTS exclude it from `dids.total`/`local`/`tollFree` and count it under `dids.fax` instead.
+   */
+  fax: boolean;
   /** Where the number routes, for a person: see {@link destinationOf}. `''` when the record says nothing. */
   destination: string;
   /** `dial-rule-description` trimmed — the note the portal writes ("Portal Created: User - 1001"); `''` when blank. */
@@ -123,6 +156,20 @@ export interface DomainInventoryDetail {
   dids: NumberItem[];
   e911Addresses: AddressItem[];
   smsNumbers: SmsItem[];
+}
+
+/**
+ * What the caller has to tell the counter that the API cannot. Optional in full: every option absent is
+ * the pre-0.7.0 behaviour, and no option changes what a snapshot has to contain.
+ */
+export interface InventoryOptions {
+  /**
+   * The hosts a fax line is handed to — an IP or a hostname, as it appears in
+   * `dial-rule-translation-destination-host`. Compared trimmed and case-insensitively; blanks are
+   * ignored. Absent or empty means NO number is a fax line. See the module doc for why this is the
+   * caller's to supply.
+   */
+  faxServerHosts?: readonly string[];
 }
 
 /** NANP toll-free area codes, 800 through 888. A number outside this set is counted local. */
@@ -176,18 +223,46 @@ function isTollFree(raw: string): boolean {
   return nanp.length === 10 && TOLL_FREE.has(nanp.slice(0, 3));
 }
 
-/** The local part of a device's `aor` (`sip:103t@acme.example` → `103t`), read only to test for Teams. */
-function aorLocal(device: Rec): string {
-  const a = str(device.aor).replace(/^sip:/i, '');
+/** The fax-server hosts, trimmed, lower-cased and with blanks dropped — the shape {@link isFaxLine} tests against. */
+function faxHosts(hosts: readonly string[] | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const h of hosts ?? []) { const v = str(h).toLowerCase(); if (v) out.add(v); }
+  return out;
+}
+
+/**
+ * Is this number handed to a fax server? The `dial-rule-translation-destination-host` alone, matched
+ * against the caller's list — never the `dial-rule-description`, which is a note the portal writes and
+ * an operator can edit. An empty host set answers `false` for everything, which is the point: this
+ * library knows no fax server of its own.
+ */
+function isFaxLine(p: Rec, hosts: Set<string>): boolean {
+  if (!hosts.size) return false;
+  return hosts.has(str(p['dial-rule-translation-destination-host']).toLowerCase());
+}
+
+/**
+ * A device's NAME — the local part of its SIP URI (`sip:103t@acme.example` → `103t`), which is the short
+ * id the portal shows and the string the Teams test matches against.
+ *
+ * **`device` first, `aor` second.** A live `/users/<ext>/devices` record names the device in `device` and
+ * frequently carries no `aor` at all; reading `aor` alone therefore returned `''` on live data, which
+ * blanked every device name on the page AND broke the `<ext>t` Teams test — so a Teams connector read as
+ * `teams: false` and was counted as a handset in `deviceCount` and `devices.total`. Some records carry
+ * both, and then `device` wins, being the field the system actually names the device by. Neither, and the
+ * name is `''` rather than a guess.
+ */
+function deviceName(device: Rec): string {
+  const a = (str(device.device) || str(device.aor)).replace(/^sip:/i, '');
   const at = a.indexOf('@');
   return at === -1 ? a : a.slice(0, at);
 }
 
 function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
   const ext = str(u.user);
-  // The Teams test is `<ext>t`, so a blank ext would read every device whose aor local part is a
-  // bare `t` as a connector. No extension number, no Teams claim.
-  const handsets = ext ? devices.filter((d) => aorLocal(d) !== `${ext}t`) : devices;
+  // The Teams test is `<ext>t`, so a blank ext would read every device NAMED a bare `t` as a connector.
+  // No extension number, no Teams claim.
+  const handsets = ext ? devices.filter((d) => deviceName(d) !== `${ext}t`) : devices;
   const transcription = str(u['voicemail-transcription-enabled']).toLowerCase();
   const teams = handsets.length !== devices.length;
   const name = `${str(u['name-first-name'])} ${str(u['name-last-name'])}`.trim();
@@ -208,8 +283,9 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
     deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
     // Every device, including the Teams connector — this is a display list, not a seat count.
     devices: devices.map((d) => {
-      const isTeams = ext ? aorLocal(d) === `${ext}t` : false;
-      return { name: aorLocal(d), model: isTeams ? '' : str(d['device-models-model']) || '(unknown)', teams: isTeams };
+      const name = deviceName(d);
+      const isTeams = ext ? name === `${ext}t` : false;
+      return { name, model: isTeams ? '' : str(d['device-models-model']) || '(unknown)', teams: isTeams };
     }),
     anyDevice: handsets.length > 0 || teams,
   };
@@ -249,8 +325,14 @@ export function usersByExt(users: Rec[]): Map<string, Rec> {
  * - No destination but an application is set → `to <application>` (`to-connection` → `to connection`,
  *   `to-voicemail` → `to voicemail`).
  * - Neither is set → `''`.
+ *
+ * A FAX LINE — a number whose destination host is one of `faxServerHosts` — short-circuits all of that
+ * and reads `to fax server`, host omitted. Otherwise it would render as `to connection` (which names
+ * plumbing, not a destination) or, on a rule that also carries a destination user, as a bare IP address
+ * beside a customer's phone number. Nobody reading this line needs the fax server's address.
  */
-export function destinationOf(p: Rec, userByExt: Map<string, Rec>): string {
+export function destinationOf(p: Rec, userByExt: Map<string, Rec>, faxServerHosts?: readonly string[]): string {
+  if (isFaxLine(p, faxHosts(faxServerHosts))) return 'to fax server';
   const dest = str(p['dial-rule-translation-destination-user']);
   const app = str(p['dial-rule-application']).replace(/^to-/i, '');
   const host = str(p['dial-rule-translation-destination-host']);
@@ -288,7 +370,7 @@ export function destinationOf(p: Rec, userByExt: Map<string, Rec>): string {
  * countable thing, and one derived row is more honest than two that shuffle. A blank id is a
  * provisioning fault to fix; the fallback only keeps the distinguishable ones apart until it is.
  */
-export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
+export function listDomainInventory(snapshot: Snapshot, opts?: InventoryOptions): DomainInventoryDetail {
   const users: Rec[] = Array.isArray(snapshot.users) ? snapshot.users : [];
   const devicesByUser: Record<string, Rec[]> = (snapshot.devicesByUser ?? {}) as Record<string, Rec[]>;
   const phonenumbers: Rec[] = Array.isArray(snapshot.phonenumbers) ? snapshot.phonenumbers : [];
@@ -310,12 +392,17 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
     (isSystemUser(u) ? systemUsers : extensions).push(item);
   }
   const userByExt = usersByExt(users);
+  // Normalised once, not per number: the host list is the caller's and does not change mid-fold.
+  const hosts = faxHosts(opts?.faxServerHosts);
   const dids: NumberItem[] = phonenumbers.map((p) => {
     const number = str(p.phonenumber);
     const kind: 'local' | 'tollFree' = isTollFree(number) ? 'tollFree' : 'local';
-    const destination = destinationOf(p, userByExt);
+    const fax = isFaxLine(p, hosts);
+    // The KEY does not carry `fax`. It is a fact about how the number is routed today, and routing a
+    // number to the fax server must not orphan every decision a consumer recorded against it.
+    const destination = fax ? 'to fax server' : destinationOf(p, userByExt);
     const description = str(p['dial-rule-description']);
-    return { key: identityKey('did', number, JSON.stringify({ number, kind })), number, kind, destination, description };
+    return { key: identityKey('did', number, JSON.stringify({ number, kind })), number, kind, fax, destination, description };
   });
   const e911Addresses: AddressItem[] = addresses.map((a, i) => {
     const id = str(a['emergency-address-id']);
@@ -339,8 +426,8 @@ export function listDomainInventory(snapshot: Snapshot): DomainInventoryDetail {
 }
 
 /** The counts, as a fold over {@link listDomainInventory} so the two can never disagree. */
-export function countDomainInventory(snapshot: Snapshot): DomainInventory {
-  return countInventoryDetail(listDomainInventory(snapshot));
+export function countDomainInventory(snapshot: Snapshot, opts?: InventoryOptions): DomainInventory {
+  return countInventoryDetail(listDomainInventory(snapshot, opts));
 }
 
 /**
@@ -353,7 +440,7 @@ export function countInventoryDetail(d: DomainInventoryDetail): DomainInventory 
     systemUsers: { total: d.systemUsers.length, byServiceCode: {} },
     transcriptionEnabled: 0,
     teamsConnected: 0,
-    dids: { total: d.dids.length, tollFree: 0, local: 0 },
+    dids: { total: 0, tollFree: 0, local: 0, fax: 0, all: d.dids.length },
     e911Addresses: d.e911Addresses.length,
     smsNumbers: d.smsNumbers.length,
     devices: { total: 0, byModel: {} },
@@ -371,7 +458,15 @@ export function countInventoryDetail(d: DomainInventoryDetail): DomainInventory 
     inv.devices.total += x.deviceCount;
     for (const m of x.deviceModels) bump(inv.devices.byModel, m);
   }
-  for (const n of d.dids) { if (n.kind === 'tollFree') inv.dids.tollFree++; else inv.dids.local++; }
+  // A fax line is billed as a fax line, so it lands in `fax` and in NEITHER of the two DID buckets —
+  // counting it as both would bill one number twice on a rulebook that has a rule for each. `fax` is
+  // read off the item rather than recomputed: an item list a consumer FILTERED still carries it, and a
+  // list built by a pre-0.7.0 lib has no `fax` at all, which reads as false and counts as it always did.
+  for (const n of d.dids) {
+    if (n.fax) { inv.dids.fax++; continue; }
+    inv.dids.total++;
+    if (n.kind === 'tollFree') inv.dids.tollFree++; else inv.dids.local++;
+  }
   return inv;
 }
 
@@ -393,9 +488,14 @@ export function itemsFor(detail: DomainInventoryDetail, path: string): Inventory
   if (path === 'extensions.withNoDevice') return ex.filter((x) => !x.anyDevice);
   if (path === 'transcriptionEnabled') return ex.filter((x) => x.transcription);
   if (path === 'teamsConnected') return ex.filter((x) => x.teams);
-  if (path === 'dids.total') return detail.dids;
-  if (path === 'dids.tollFree') return detail.dids.filter((n) => n.kind === 'tollFree');
-  if (path === 'dids.local') return detail.dids.filter((n) => n.kind === 'local');
+  // The three DID paths exclude fax lines, exactly as the counts do — a `counts: "dids.total"` rule
+  // whose observed number left the fax lines out but whose item list showed them would offer an
+  // operator rows to accept that the number above them does not count.
+  if (path === 'dids.total') return detail.dids.filter((n) => !n.fax);
+  if (path === 'dids.tollFree') return detail.dids.filter((n) => !n.fax && n.kind === 'tollFree');
+  if (path === 'dids.local') return detail.dids.filter((n) => !n.fax && n.kind === 'local');
+  if (path === 'dids.fax') return detail.dids.filter((n) => n.fax);
+  if (path === 'dids.all') return detail.dids;
   if (path === 'e911Addresses') return detail.e911Addresses;
   if (path === 'smsNumbers') return detail.smsNumbers;
   return undefined;
