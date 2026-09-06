@@ -90,8 +90,9 @@ VoIP operator actually sells on:
 - `systemUsers` — `system-aa`, `system-queue`, `system-tod` and friends: `total` and `byServiceCode`.
   Informational, never compared against a seat count.
 - `transcriptionEnabled` — extensions with voicemail transcription on.
-- `teamsConnected` — extensions with a Microsoft Teams connector device (SIP `aor` local part
-  `<ext>t`). That connector is excluded from `devices`/`deviceCount`: it is a connector, not a handset.
+- `teamsConnected` — extensions with a Microsoft Teams connector device — one whose device-name suffix
+  the legend marks `teams` (`<ext>t` by default). That connector is excluded from `devices`/`deviceCount`:
+  it is a connector, not a handset. See [Device suffixes](#device-suffixes).
 - `dids` — phone numbers: `total` / `tollFree` / `local`, all three **excluding fax lines**, plus
   `fax` and `all` (everything, `total + fax === all`). See [Fax lines](#fax-lines).
 - `e911Addresses`, `smsNumbers` — record counts.
@@ -141,6 +142,34 @@ Matching is on the trimmed host, case-insensitively, and on nothing else — nev
 and it keeps its `kind`: a fax number is local or toll-free like any other, it is simply not counted as a
 DID.
 
+#### Device suffixes
+
+A device's **suffix** is what its name carries after the extension number: `1001wp` on extension `1001`
+has suffix `wp`, a bare `1001` has none, and a name that does not start with the extension has none
+either. Three suffixes ship with NetSapiens, and `DEFAULT_DEVICE_SUFFIXES` is that table:
+
+```ts
+DEFAULT_DEVICE_SUFFIXES;  // { wp: {label:'SNAPmobile Web'}, m: {label:'SNAPmobile'}, t: {label:'Teams', teams:true} }
+```
+
+Each device in `ExtensionItem.devices` carries its `suffix` (lower-cased) and the legend's label for it as
+`kind` — `''` when the suffix is empty or the legend does not carry it, because an unlisted suffix is a
+name the deployment has not explained, not a device type to guess at. The suffix marked `teams: true` is
+what identifies a Microsoft Teams connector: that is the whole of the test, so `teamsConnected`,
+`ExtensionItem.teams` and the handset-only `deviceCount`/`deviceModels` all follow from the legend.
+
+Your own suffixes go in `deviceSuffixes`, which **replaces** the default rather than merging with it:
+
+```ts
+listDomainInventory(snapshot, { deviceSuffixes: { r: { label: 'Acme App' }, t: { label: 'Teams', teams: true } } });
+```
+
+Replace-wholesale is deliberate. A deployment without TeamMate omits `t`, and Teams detection is then off
+entirely — every `<ext>t` device is a handset and is counted as one — which a merge could not express.
+Comparison is case-insensitive on both sides. `resolveFlow` labels a simultaneous-ring device from the
+same default table (it takes no options — a call flow is drawn from a snapshot alone), so a suffix means
+one thing across this library.
+
 #### Listing a domain: `listDomainInventory`
 
 `countDomainInventory` is a fold over `listDomainInventory(snapshot, opts?)` (same options), which returns the per-item lists
@@ -159,9 +188,10 @@ never appear, though names and sites now do (that's the point of a list). Each i
 A number carries `fax` (see [Fax lines](#fax-lines)) and `destination` — where it routes, in words
 (`to user 100 — Ann Lee`, `to queue 701 — Sales`, `to fax server`), built by the exported
 `destinationOf(p, userByExt, faxServerHosts?)` over `usersByExt(users)` — and `description`
-(`dial-rule-description`, trimmed); an extension carries `devices`, an `{ name, model, teams }` per
-device it has (handset and Teams connector alike), in record order — still never the MAC, SIP password
-or email.
+(`dial-rule-description`, trimmed); an extension carries `devices`, an
+`{ name, model, teams, suffix, kind }` per device it has (handset and Teams connector alike), in record
+order — still never the MAC, SIP password or email. See [Device suffixes](#device-suffixes) for `suffix`
+and `kind`.
 
 `itemsFor(detail, path)` returns the items behind one of `countDomainInventory`'s dotted-path counts —
 the same vocabulary, so a UI that lets an operator drill from a count into the records behind it needs

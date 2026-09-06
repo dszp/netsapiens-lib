@@ -61,10 +61,12 @@ export interface DomainInventory {
   /** Extensions whose `voicemail-transcription-enabled` is anything but empty or `no`. */
   transcriptionEnabled: number;
   /**
-   * Extensions with a Microsoft Teams connector device — one whose device NAME is the extension number
-   * followed by `t` (`1000t`), which is how the TeamMate connector registers. See {@link deviceName} for
-   * which field that name is read from, and why reading the wrong one silently miscounted this.
-   * That device is NOT counted under `devices`: it is a connector, not a handset.
+   * Extensions with a Microsoft Teams connector device — one whose device-name SUFFIX the legend marks
+   * `teams: true`, which under {@link DEFAULT_DEVICE_SUFFIXES} is the extension number followed by `t`
+   * (`1000t`), how the TeamMate connector registers. See {@link deviceName} for which field that name is
+   * read from, and why reading the wrong one silently miscounted this. That device is NOT counted under
+   * `devices`: it is a connector, not a handset. A supplied legend with no `teams` suffix — a deployment
+   * without TeamMate — leaves this 0 and counts every device as a handset.
    */
   teamsConnected: number;
   /**
@@ -122,8 +124,15 @@ export interface ExtensionItem {
    * has no model), and `teams` marks the connector entry itself. `deviceCount`/`deviceModels`/`teams`
    * above stay handset-only; this list is the one place a connector's own row shows up. Never the MAC
    * or the SIP password.
+   *
+   * `suffix` is what the name carries AFTER the extension number (`1001wp` on ext `1001` → `wp`; a bare
+   * `1001` → `''`), lower-cased; a name that does not start with the extension has no suffix, and neither
+   * does a device on an extension with no number. `kind` is that suffix's label from the legend in
+   * {@link InventoryOptions.deviceSuffixes} — `''` when the suffix is empty OR when the legend does not
+   * carry it, because an unlisted suffix is a name this deployment has not explained, not a device type
+   * to guess at.
    */
-  devices: Array<{ name: string; model: string; teams: boolean }>;
+  devices: Array<{ name: string; model: string; teams: boolean; suffix: string; kind: string }>;
   /** `deviceCount > 0 || teams` — has a device of any kind, handset or connector. */
   anyDevice: boolean;
 }
@@ -158,6 +167,23 @@ export interface DomainInventoryDetail {
   smsNumbers: SmsItem[];
 }
 
+/** A device-name suffix legend: `suffix → { label, teams? }`. See {@link InventoryOptions.deviceSuffixes}. */
+export type DeviceSuffixLegend = Record<string, { label: string; teams?: boolean }>;
+
+/**
+ * The three device-name suffixes NetSapiens itself ships — SNAPmobile Web, SNAPmobile, and the TeamMate
+ * Microsoft Teams connector. Used whenever a caller supplies no `deviceSuffixes`, and it is the same
+ * table `resolver.ts` names a simultaneous-ring device by, so a suffix means one thing in this library.
+ *
+ * A deployment's OWN suffixes (a white-labelled app, say) are not here and never will be: they belong to
+ * the operator, who supplies them through {@link InventoryOptions.deviceSuffixes}.
+ */
+export const DEFAULT_DEVICE_SUFFIXES: Readonly<DeviceSuffixLegend> = Object.freeze({
+  wp: { label: 'SNAPmobile Web' },
+  m: { label: 'SNAPmobile' },
+  t: { label: 'Teams', teams: true },
+});
+
 /**
  * What the caller has to tell the counter that the API cannot. Optional in full: every option absent is
  * the pre-0.7.0 behaviour, and no option changes what a snapshot has to contain.
@@ -170,6 +196,18 @@ export interface InventoryOptions {
    * caller's to supply.
    */
   faxServerHosts?: readonly string[];
+  /**
+   * What a device-name SUFFIX means on this deployment: `suffix → { label, teams? }`. Compared
+   * case-insensitively, and it REPLACES {@link DEFAULT_DEVICE_SUFFIXES} wholesale rather than merging
+   * with it — a deployment that has no TeamMate omits `t` and Teams detection is then off entirely,
+   * which a merge could not express.
+   *
+   * `teams: true` marks the suffix that names a Microsoft Teams CONNECTOR rather than a handset: it is
+   * what {@link ExtensionItem.teams} and {@link DomainInventory.teamsConnected} test, and what keeps the
+   * connector out of `deviceCount`/`deviceModels`. At most one suffix normally carries it, but nothing
+   * here requires that.
+   */
+  deviceSuffixes?: DeviceSuffixLegend;
 }
 
 /** NANP toll-free area codes, 800 through 888. A number outside this set is counted local. */
@@ -258,11 +296,46 @@ function deviceName(device: Rec): string {
   return at === -1 ? a : a.slice(0, at);
 }
 
-function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
+/**
+ * The legend, lower-cased once so every lookup is a case-insensitive hit rather than a scan. A caller's
+ * legend REPLACES the default; two keys differing only in case collapse, last one wins, which is the
+ * only sane reading of a case-insensitive table.
+ */
+function suffixLegend(opts: InventoryOptions | undefined): DeviceSuffixLegend {
+  const src = opts?.deviceSuffixes ?? DEFAULT_DEVICE_SUFFIXES;
+  // Prototype-free: the key is a device-name suffix off a snapshot, so `constructor`, `toString` and
+  // `hasOwnProperty` are all reachable keys, and on a plain object each would answer with something
+  // inherited. `Object.entries` copies own enumerable keys only, so nothing inherited gets in either.
+  const out: DeviceSuffixLegend = Object.create(null) as DeviceSuffixLegend;
+  for (const [k, v] of Object.entries(src)) out[k.trim().toLowerCase()] = v;
+  return out;
+}
+
+/**
+ * What a device's name carries AFTER the extension number, lower-cased: `1001wp` on ext `1001` → `wp`,
+ * a bare `1001` → `''`. A name that does not start with the extension has no suffix at all — `sales1` on
+ * ext `1001` is a differently-named device, not a device of kind `sales1` — and neither does anything on
+ * an extension with no number, which is what keeps a device NAMED a bare `t` off the Teams legend.
+ */
+function deviceSuffix(name: string, ext: string): string {
+  if (!ext || !name.startsWith(ext)) return '';
+  return name.slice(ext.length).toLowerCase();
+}
+
+function extensionItem(u: Rec, devices: Rec[], legend: DeviceSuffixLegend): ExtensionItem {
   const ext = str(u.user);
-  // The Teams test is `<ext>t`, so a blank ext would read every device NAMED a bare `t` as a connector.
-  // No extension number, no Teams claim.
-  const handsets = ext ? devices.filter((d) => deviceName(d) !== `${ext}t`) : devices;
+  // Every device, once: its name, its suffix, and what the legend says that suffix is. Computed here and
+  // read three times below, so the Teams test, the handset filter and the display list cannot disagree.
+  const rows = devices.map((d) => {
+    const name = deviceName(d);
+    const suffix = deviceSuffix(name, ext);
+    const entry = suffix ? legend[suffix] : undefined;
+    return { d, name, suffix, kind: entry?.label ?? '', teams: entry?.teams === true };
+  });
+  // A CONNECTOR is a device whose suffix the legend marks `teams` — under the default legend that is
+  // `<ext>t` and nothing else, which is exactly the test this replaced. A legend without a `teams`
+  // suffix has no connectors, and every device on the extension is a handset.
+  const handsets = rows.filter((r) => !r.teams);
   const transcription = str(u['voicemail-transcription-enabled']).toLowerCase();
   const teams = handsets.length !== devices.length;
   const name = `${str(u['name-first-name'])} ${str(u['name-last-name'])}`.trim();
@@ -280,13 +353,15 @@ function extensionItem(u: Rec, devices: Rec[]): ExtensionItem {
     deviceCount: handsets.length,
     // A device whose model is blank is listed under a named bucket rather than dropped: a missing
     // model is a provisioning gap worth seeing, and a silently smaller total hides it.
-    deviceModels: handsets.map((d) => str(d['device-models-model']) || '(unknown)'),
+    deviceModels: handsets.map((r) => str(r.d['device-models-model']) || '(unknown)'),
     // Every device, including the Teams connector — this is a display list, not a seat count.
-    devices: devices.map((d) => {
-      const name = deviceName(d);
-      const isTeams = ext ? name === `${ext}t` : false;
-      return { name, model: isTeams ? '' : str(d['device-models-model']) || '(unknown)', teams: isTeams };
-    }),
+    devices: rows.map((r) => ({
+      name: r.name,
+      model: r.teams ? '' : str(r.d['device-models-model']) || '(unknown)',
+      teams: r.teams,
+      suffix: r.suffix,
+      kind: r.kind,
+    })),
     anyDevice: handsets.length > 0 || teams,
   };
 }
@@ -379,6 +454,8 @@ export function listDomainInventory(snapshot: Snapshot, opts?: InventoryOptions)
 
   const extensions: ExtensionItem[] = [];
   const systemUsers: ExtensionItem[] = [];
+  // Normalised once, not per extension: the legend is the caller's and does not change mid-fold.
+  const legend = suffixLegend(opts);
   for (let i = 0; i < users.length; i++) {
     const u = users[i]!;
     const ext = str(u.user);
@@ -388,7 +465,7 @@ export function listDomainInventory(snapshot: Snapshot, opts?: InventoryOptions)
     // from a backup or a fixture. Dropping it would read as a clean match on a domain that has
     // handsets nobody can see; two blank users sharing one list overcount instead, which is a
     // visible drift an operator investigates, and that is the failure worth having.
-    const item = extensionItem(u, devicesByUser[ext] ?? []);
+    const item = extensionItem(u, devicesByUser[ext] ?? [], legend);
     (isSystemUser(u) ? systemUsers : extensions).push(item);
   }
   const userByExt = usersByExt(users);
