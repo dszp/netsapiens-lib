@@ -54,7 +54,7 @@ const trim = (v: string, max = GREET_MAX): string => (v.length > max ? `${v.slic
  * `Object.create(null)` keeps the lookup a subscript.
  */
 const SUFFIX_ICONS: Record<string, string> = Object.assign(Object.create(null) as Record<string, string>,
-  { wp: '🌐', t: '💻', m: '📱', r: '📱' });
+  { wp: '🌐', tm: '💻', t: '📱', m: '📱', r: '📱' });
 /** Kinds for suffixes {@link DEFAULT_DEVICE_SUFFIXES} does not name. `r` for the reason above; anything
  *  else lower-cased (`b`, and the rest) is a desk phone, which is what an unadorned device usually is.
  *  Prototype-free for the reason above. */
@@ -585,7 +585,7 @@ function ringThenVoicemail(fromId: string, ext: string, idx: Index, b: Builder, 
   const name = idx.userName(ext);
 
   // What this rule rings: the user's own registered devices (<OwnDevices> or the bare self ext) plus
-  // any specific extra target — a mobile/Teams/app registration (…m/…t/…r) or another user. Note a
+  // any specific extra target — a mobile/tablet/Teams/app registration (…m/…t/…tm/…r) or another user. Note a
   // `2152m` is NOT the same as `2152` (it's the mobile app), so don't fold it into "self".
   // `<OwnDevices>` rings ALL the user's registrations (incl. mobile/desktop apps); the bare self ext
   // rings only the extension's primary — a real difference (e.g. time_open uses <OwnDevices> so the
@@ -696,7 +696,7 @@ function ensureQueue(ext: string, idx: Index, b: Builder): string {
     // nothing — priority rarely matters unless an agent spans multiple queues.
     const showPerAgentPrio = !uniformPrio;
     // A USER-type entry → 👤 (rings per the user's own answering rules & devices). A DEVICE entry rings
-    // JUST that device regardless of the user's rules → icon by suffix (wp→🌐 web, t→💻 Teams, m/r→📱
+    // JUST that device regardless of the user's rules → icon by suffix (wp→🌐 web, tm→💻 Teams, m/t/r→📱
     // app), defaulting to 📞 a desk phone for a plain/unknown device.
     const icon = (p: (typeof parsed)[number]) => {
       if (p.type === 'user') return '👤';

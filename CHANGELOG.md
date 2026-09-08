@@ -5,6 +5,25 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.0 — 2026-09-08
+
+### Changed
+
+- **`DEFAULT_DEVICE_SUFFIXES` now matches what NetSapiens ships today: `t` is SNAPmobile Tablet and the
+  TeamMate Microsoft Teams connector is `tm`.** The table is four entries — `wp` SNAPmobile Web, `m`
+  SNAPmobile, `t` SNAPmobile Tablet, `tm` Teams (`teams: true`) — because NetSapiens reassigned `t` to
+  the mobile app on a tablet and now recommends `tm` for the connector. ⚠️ **A consumer whose TeamMate
+  devices still register as `<ext>t` and who supplies no `deviceSuffixes` loses Teams detection on
+  upgrade**: those devices read as handsets, so `teamsConnected` falls to 0 and `deviceCount`,
+  `deviceModels` and `devices.total` rise by the same number. To keep the old behaviour, supply a legend
+  — `deviceSuffixes: { …, t: { label: 'Teams', teams: true }, tm: { label: 'Teams', teams: true } }`, or
+  just `t` on a deployment that has no `<ext>tm` device at all. Marking both is supported: nothing
+  requires that only one suffix carries `teams`. This is the whole of the change and it is a MINOR bump
+  rather than a patch because the counts move on a real deployment without any code changing.
+- `resolveFlow` draws a `…t` sim-ring target or queue agent with 📱 (a mobile app) rather than 💻, and
+  `…tm` with 💻. `deviceKindBySuffix` reads the same default legend, so the diagram's labels and the
+  inventory's kinds still cannot drift.
+
 ## 0.9.0 — 2026-09-06
 
 ### Added
