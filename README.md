@@ -94,7 +94,7 @@ VoIP operator actually sells on:
   Informational, never compared against a seat count.
 - `transcriptionEnabled` — extensions with voicemail transcription on.
 - `teamsConnected` — extensions with a Microsoft Teams connector device — one whose device-name suffix
-  the legend marks `teams` (`<ext>t` by default). That connector is excluded from `devices`/`deviceCount`:
+  the legend marks `teams` (`<ext>tm` by default). That connector is excluded from `devices`/`deviceCount`:
   it is a connector, not a handset. See [Device suffixes](#device-suffixes).
 - `dids` — phone numbers: `total` / `tollFree` / `local`, all three **excluding fax lines**, plus
   `fax` and `all` (everything, `total + fax === all`). See [Fax lines](#fax-lines).
@@ -155,11 +155,17 @@ DID.
 
 A device's **suffix** is what its name carries after the extension number: `1001wp` on extension `1001`
 has suffix `wp`, a bare `1001` has none, and a name that does not start with the extension has none
-either. Three suffixes ship with NetSapiens, and `DEFAULT_DEVICE_SUFFIXES` is that table:
+either. Four suffixes ship with NetSapiens, and `DEFAULT_DEVICE_SUFFIXES` is that table:
 
 ```ts
-DEFAULT_DEVICE_SUFFIXES;  // { wp: {label:'SNAPmobile Web'}, m: {label:'SNAPmobile'}, t: {label:'Teams', teams:true} }
+// { wp: {label:'SNAPmobile Web'}, m: {label:'SNAPmobile'}, t: {label:'SNAPmobile Tablet'}, tm: {label:'Teams', teams:true} }
+DEFAULT_DEVICE_SUFFIXES;
 ```
+
+**NetSapiens moved the TeamMate Microsoft Teams connector from `t` to `tm`, and `t` now names SNAPmobile
+running on a tablet.** A deployment whose connectors still register as `<ext>t` keeps them counted by
+supplying a legend that marks both — `t: { label: 'Teams', teams: true }` and the same for `tm` — because
+under the default table an `<ext>t` device is a handset and `teamsConnected` will not see it.
 
 Each device in `ExtensionItem.devices` carries its `suffix` (lower-cased) and the legend's label for it as
 `kind` — `''` when the suffix is empty or the legend does not carry it, because an unlisted suffix is a
@@ -170,11 +176,13 @@ what identifies a Microsoft Teams connector: that is the whole of the test, so `
 Your own suffixes go in `deviceSuffixes`, which **replaces** the default rather than merging with it:
 
 ```ts
-listDomainInventory(snapshot, { deviceSuffixes: { r: { label: 'Acme App' }, t: { label: 'Teams', teams: true } } });
+listDomainInventory(snapshot, { deviceSuffixes: { r: { label: 'Acme App' }, tm: { label: 'Teams', teams: true } } });
 ```
 
-Replace-wholesale is deliberate. A deployment without TeamMate omits `t`, and Teams detection is then off
-entirely — every `<ext>t` device is a handset and is counted as one — which a merge could not express.
+Replace-wholesale is deliberate. A deployment without TeamMate omits `tm`, and Teams detection is then off
+entirely — every `<ext>tm` device is a handset and is counted as one — which a merge could not express. It
+is also what lets a deployment mid-migration mark `t` and `tm` alike: nothing requires that only one
+suffix carries `teams`.
 Comparison is case-insensitive on both sides. `resolveFlow` labels a simultaneous-ring device from the
 same default table (it takes no options — a call flow is drawn from a snapshot alone), so a suffix means
 one thing across this library.

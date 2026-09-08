@@ -229,8 +229,9 @@ const linesOf = (g: FlowGraph, kind: NodeKind) => (g.nodes.find((n) => n.kind ==
   const k = (s: string) => deviceKindBySuffix(s);
   check('suffix wp reads the legend label SNAPmobile Web, with the resolver\'s globe', k('wp').kind === 'SNAPmobile Web' && k('wp').icon === '🌐');
   check('suffix m reads SNAPmobile', k('m').kind === 'SNAPmobile' && k('m').icon === '📱');
-  check('suffix t reads Teams', k('t').kind === 'Teams' && k('t').icon === '💻');
-  check('an upper-case suffix reads the same', k('WP').kind === 'SNAPmobile Web' && k('T').kind === 'Teams');
+  check('suffix t reads SNAPmobile Tablet, a mobile app, with the phone glyph', k('t').kind === 'SNAPmobile Tablet' && k('t').icon === '📱');
+  check('suffix tm reads Teams, with the laptop glyph', k('tm').kind === 'Teams' && k('tm').icon === '💻');
+  check('an upper-case suffix reads the same', k('WP').kind === 'SNAPmobile Web' && k('TM').kind === 'Teams' && k('T').kind === 'SNAPmobile Tablet');
   check('suffix r is the resolver\'s own fallback, not the legend\'s', k('r').kind === 'app' && k('r').icon === '📱');
   check('any other letter is a desk phone', k('b').kind === 'desk phone' && k('b').icon === '📞');
   check('no suffix is no kind and no icon', k('').kind === '' && k('').icon === '');
