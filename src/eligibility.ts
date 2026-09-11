@@ -5,13 +5,14 @@
  *
  *   HARD  — system/service users (srv_code) + structurally-invalid extensions. Never eligible, not even a
  *           reseller override.
- *   SOFT  — name matchers, extension lists, no-device heuristic. Default-excluded, reseller-overridable
- *           per configured category (or via an explicit per-request `force`).
+ *   SOFT  — name matchers, extension lists, no-device heuristic, users hidden from the directory.
+ *           Default-excluded, reseller-overridable per configured category (or via an explicit
+ *           per-request `force`).
  *   email — a precondition: activation typically emails credentials, so it can't proceed without an address.
- * Precedence: HARD → SOFT (names, exts) → precondition → ok.
+ * Precedence: HARD → SOFT (names, exts, unlisted) → precondition → ok.
  */
 
-export type SoftCategory = 'names' | 'exts' | 'no_devices';
+export type SoftCategory = 'names' | 'exts' | 'no_devices' | 'unlisted';
 
 export interface EligibilityConfig {
   /** Lowercased name-contains matchers (checked against first/last/display). Caller lowercases. */
@@ -22,6 +23,11 @@ export interface EligibilityConfig {
   excludeExtsByDomain: Record<string, { add?: string[]; remove?: string[] }>;
   /** No-device heuristic: TIGHTENS a name match (never decides alone). */
   excludeNoDevices: boolean;
+  /**
+   * Whether a user hidden from the domain directory is a soft exclusion. Omitted means `'soft'`;
+   * `'ignore'` is the explicit opt-out.
+   */
+  unlistedUsers?: 'soft' | 'ignore';
   /** Soft categories a reseller may override. */
   resellerOverride: Set<SoftCategory>;
 }
@@ -32,6 +38,12 @@ export interface EligUser {
   email?: string;
   names?: string[];
   deviceCount?: number;
+  /**
+   * Whether the user appears in the domain directory listing (the NetSapiens
+   * `directory-name-visible-in-list-enabled` field). Leave undefined when the consumer did not read
+   * it: unknown is not `false`, and the rule does not fire on it.
+   */
+  listedInDirectory?: boolean;
 }
 
 export interface EligContext {
@@ -98,6 +110,13 @@ export function evaluateEligibility(user: EligUser, ctx: EligContext, config: El
   const extHit = extMatch(user.ext, excludedExtsFor(config, ctx.domain));
   if (extHit && !canOverride('exts')) {
     return { activatable: false, tier: 'soft', reasons: [`extension "${user.ext}" matches excluded pattern "${extHit}"`] };
+  }
+
+  // Reason `not listed in the directory`: the user is hidden from the domain directory listing, a
+  // deliberate "this is not a person you look up" signal. Unknown (undefined) is not a hit — absence
+  // of evidence is not evidence the user is unlisted.
+  if ((config.unlistedUsers ?? 'soft') === 'soft' && user.listedInDirectory === false && !canOverride('unlisted')) {
+    return { activatable: false, tier: 'soft', reasons: ['not listed in the directory'] };
   }
 
   if (blank(user.email)) {

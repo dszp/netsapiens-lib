@@ -1,8 +1,8 @@
 /**
  * Offline test for evaluateEligibility — pure predicate, no fetch/mocking needed. Asserts precedence
  * (hard > soft > precondition > ok): srv_code + non-3-4-digit ext are hard; excluded name/ext patterns
- * are soft (reseller-overridable via force); missing email is a precondition; per-domain ext exclusion
- * layers onto the global list. tsx src/eligibility.selftest.ts
+ * are soft (reseller-overridable via force), as is a user hidden from the directory; missing email is a
+ * precondition; per-domain ext exclusion layers onto the global list. tsx src/eligibility.selftest.ts
  */
 import { evaluateEligibility, type EligibilityConfig, type EligContext } from './index.js';
 
@@ -89,6 +89,85 @@ const ctx: EligContext = { domain: 'demo.12345.service', isReseller: false };
 {
   const r = evaluateEligibility({ ext: '100', names: ['Alice'] }, ctx, cfg());
   ok(r.tier === 'precondition' && r.emailWaived === undefined, 'without the flag the precondition still fires');
+}
+
+// ── unlisted: a user whose directory listing is off is a soft exclusion ───────────────────────────
+// soft — directory listing off blocks by default (no config key set)
+{
+  const r = evaluateEligibility({ ext: '100', email: 'a@example.com', listedInDirectory: false }, ctx, cfg());
+  ok(
+    r.activatable === false && r.tier === 'soft' && r.reasons[0] === 'not listed in the directory',
+    'soft — listedInDirectory:false blocks by default',
+  );
+}
+
+// ignore — the explicit opt-out turns the rule off
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', listedInDirectory: false },
+    ctx,
+    cfg({ unlistedUsers: 'ignore' }),
+  );
+  ok(r.activatable === true && r.tier === 'ok', "unlistedUsers:'ignore' — the rule does not fire");
+}
+
+// unknown never fires — the consumer did not read the field
+{
+  const r = evaluateEligibility({ ext: '100', email: 'a@example.com' }, ctx, cfg());
+  ok(r.tier === 'ok', 'unlisted — absent listedInDirectory (unknown) never fires');
+}
+
+// listed — the field says yes
+{
+  const r = evaluateEligibility({ ext: '100', email: 'a@example.com', listedInDirectory: true }, ctx, cfg());
+  ok(r.tier === 'ok', 'unlisted — listedInDirectory:true is eligible');
+}
+
+// reseller override — configured category
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', listedInDirectory: false },
+    { ...ctx, isReseller: true },
+    cfg({ resellerOverride: new Set(['unlisted']) }),
+  );
+  ok(r.activatable === true && r.tier === 'ok', "unlisted — a reseller with 'unlisted' in resellerOverride overrides it");
+}
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', listedInDirectory: false },
+    { ...ctx, isReseller: true },
+    cfg({ resellerOverride: new Set(['names']) }),
+  );
+  ok(r.tier === 'soft', "unlisted — a reseller WITHOUT 'unlisted' does not override it");
+}
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', listedInDirectory: false },
+    { ...ctx, isReseller: true, force: true },
+    cfg(),
+  );
+  ok(r.activatable === true, 'unlisted — reseller force bypasses it like any other soft category');
+}
+
+// precedence — the existing soft checks still report first, and HARD still wins
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', names: ['SHARED VOICEMAIL'], listedInDirectory: false },
+    ctx,
+    cfg(),
+  );
+  ok(
+    r.tier === 'soft' && r.reasons[0].startsWith('name matches'),
+    'unlisted — a name-excluded AND unlisted user reports the name reason (existing checks come first)',
+  );
+}
+{
+  const r = evaluateEligibility(
+    { ext: '100', email: 'a@example.com', srvCode: 'x', listedInDirectory: false },
+    ctx,
+    cfg(),
+  );
+  ok(r.tier === 'hard', 'unlisted — a srv_code user stays HARD');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

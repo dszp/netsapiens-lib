@@ -5,6 +5,21 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.0 — 2026-09-10
+
+### Added
+
+- **`EligUser.listedInDirectory` and `EligibilityConfig.unlistedUsers` (`soft` by default, `ignore` to
+  opt out) — a user whose NetSapiens directory listing is off is a soft eligibility reason, overridable
+  by a reseller like the other soft categories.** `SoftCategory` gains `'unlisted'`, and the reason
+  reads `not listed in the directory`. The field is tri-state on purpose: set it `true`/`false` from
+  the `directory-name-visible-in-list-enabled` field, and leave it undefined when you did not read it —
+  unknown is not `false`, so the rule does not fire and no consumer changes behaviour until it starts
+  supplying the field. The config key is optional and defaults to `'soft'`, so an existing consumer
+  that builds the config without it compiles unchanged and gets the new rule the moment it populates
+  `listedInDirectory`. Precedence is unchanged: the check runs after the name and extension rules (so a
+  user caught by both still reports the name reason) and before the email precondition.
+
 ## 0.10.0 — 2026-09-08
 
 ### Changed
