@@ -5,6 +5,38 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.0 — 2026-09-30
+
+### Fixed
+
+- **`NsClient.get()` and `NsWriteClient.get()` now read a list to the end.** Before this release,
+  every list with more than 100 records was cut off at 100, with no error.
+  - **Cause:** NetSapiens v2 returns only the first 100 records of a list when the request has no
+    `limit`, and says nothing about it. Verified live: a domain with 152 users listed 100, with 158
+    phone numbers listed 100, and with 112 dial rules listed 100.
+  - **Who it affected:** `fetchDomainSnapshot` and `listDomains` read bare, so a domain past 100 users
+    or DIDs got a call-flow diagram and entity list missing the rest, and a reseller with more than
+    100 domains got a short domain list.
+  - **The fix:** `get()` pages with `limit=100&start=n` until a short page. `start` is the platform's
+    offset; `offset`, `page` and `skip` are ignored by the API.
+
+### Added
+
+- **`readAllPages(fetchPage, path, query?)`** — the paging loop, exported so a client with its own
+  transport pages identically.
+- **`NsIncompleteListError`** — thrown when a route ignores `start` (a page repeats) or runs past
+  1,000 pages. `partial` holds the records read before it stopped.
+- **`NS_LIST_PAGE_SIZE`** (100).
+
+### Changed
+
+- **Every `get()` without a caller-supplied `limit` or `start` now sends `limit=100&start=0`**, detail
+  routes included. The API ignores the parameters on a detail route, and a single object is returned
+  unchanged. A caller that passes its own `limit` or `start` (in `query` or the path) gets exactly one
+  request, as before — that is how to read a single page on purpose.
+- A list larger than 100 costs one request per 100 records. On Cloudflare Workers, count them toward
+  the subrequest limit.
+
 ## 0.11.0 — 2026-09-10
 
 ### Added

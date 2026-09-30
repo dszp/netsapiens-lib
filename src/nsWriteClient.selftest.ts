@@ -42,12 +42,13 @@ const B = 'https://api.example.com/ns-api/v2';
 
   // getDevices → GET .../devices (returns an array even for a single object)
   const list = await client(200, { device: '100r' }).getDevices('acme.example', '100');
-  ok(last.method === 'GET' && last.url === `${B}/domains/acme.example/users/100/devices`, 'getDevices GETs the collection');
+  ok(last.method === 'GET' && last.url.split('?')[0] === `${B}/domains/acme.example/users/100/devices`, 'getDevices GETs the collection');
+  ok(last.url.endsWith('?limit=100&start=0'), 'getDevices reads the list with paging parameters (a bare list stops at 100)');
   ok(Array.isArray(list) && (list[0] as any).device === '100r', 'getDevices normalizes a single object to an array');
 
   // getDevice → GET .../devices/{device}
   await client(200, { device: '100r' }).getDevice('acme.example', '100', '100r');
-  ok(last.method === 'GET' && last.url === `${B}/domains/acme.example/users/100/devices/100r`, 'getDevice GETs the specific device');
+  ok(last.method === 'GET' && last.url.split('?')[0] === `${B}/domains/acme.example/users/100/devices/100r`, 'getDevice GETs the specific device');
 
   // deleteDevice → DELETE .../devices/{device}
   await client(200, {}).deleteDevice('acme.example', '100', '100r');
@@ -56,7 +57,7 @@ const B = 'https://api.example.com/ns-api/v2';
 
   // Path params are URI-encoded.
   await client(200, []).getDevices('a b.example', '10@0');
-  ok(last.url === `${B}/domains/a%20b.example/users/10%400/devices`, 'path params are URI-encoded');
+  ok(last.url.split('?')[0] === `${B}/domains/a%20b.example/users/10%400/devices`, 'path params are URI-encoded');
 
   // A non-2xx write throws NsApiError carrying status + method.
   let err: any;

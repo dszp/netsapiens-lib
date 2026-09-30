@@ -182,7 +182,7 @@ for (const bad of [0, -1, 1.5, NaN]) {
   const client = new NsWriteClient({ server: 'api.example.com', token: 'tok', fetchImpl });
   const r = await client.ensureDevice(O);
   ok(r.password === 'VIA_CLIENT' && r.created === false, 'NsWriteClient.ensureDevice delegates and works end to end');
-  ok(seen[0]!.url.endsWith('/domains/acme.example.com/users/100/devices'), 'it drives the real device paths');
+  ok(seen[0]!.url.split('?')[0]!.endsWith('/domains/acme.example.com/users/100/devices'), 'it drives the real device paths');
   ok(seen.every((s) => s.method === 'GET'), 'no write was needed for an existing device');
 }
 

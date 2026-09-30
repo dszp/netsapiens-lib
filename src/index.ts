@@ -36,7 +36,7 @@ export {
   type CardOptions,
 } from './html.js';
 export { resolveSvgSize, rasterizerScript } from './raster.js';
-export { NsClient, NsApiError, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
+export { NsClient, NsApiError, NsIncompleteListError, NS_LIST_PAGE_SIZE, readAllPages, assertBareServer, fetchDomainSnapshot, listDomains, asArray, type NsClientConfig, type FetchSnapshotOptions } from './nsClient.js';
 export { countDomainInventory, countInventoryDetail, listDomainInventory, itemsFor, itemLabel, destinationOf, emergencyDigits, legacyEmergencyNumber, resolveEmergency, usersByExt, DEFAULT_DEVICE_SUFFIXES, type DeviceSuffixLegend, type DomainInventory, type DomainInventoryDetail, type EmergencyModel, type InventoryOptions, type ExtensionItem, type NumberItem, type AddressItem, type EndpointItem, type LegacyE911Item, type SmsItem, type InventoryItem } from './inventory.js';
 export { attributeDomainInventory, type DomainAttribution, type ItemAttribution } from './attribution.js';
 export { NsWriteClient, type NsWriteClientConfig } from './nsWriteClient.js';

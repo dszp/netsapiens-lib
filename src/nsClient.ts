@@ -80,7 +80,19 @@ export class NsClient {
     this.#fetchImpl = cfg.fetchImpl ?? fetch;
   }
 
+  /**
+   * GET a path. **A list route is read to the end automatically**: NetSapiens v2 returns only the
+   * first 100 records of a list when the request carries no `limit`, and says nothing about it, so
+   * `get()` pages with `limit`/`start` until a short page (see {@link readAllPages}). A caller that
+   * passes its own `limit` or `start` — in `query` or in the path's query string — gets exactly the
+   * one request it asked for; that is how a caller reads a single page on purpose (CDRs, a preview).
+   * A detail route answers with an object, which is returned from the first request unchanged.
+   */
   async get<T = unknown>(path: string, query?: Record<string, string | number>): Promise<T> {
+    return readAllPages((q) => this.#getOnce(path, q), path, query) as Promise<T>;
+  }
+
+  async #getOnce(path: string, query?: Record<string, string | number>): Promise<unknown> {
     const url = new URL(this.#baseUrl + path);
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
 
@@ -108,8 +120,74 @@ export class NsClient {
       const hint = res.status === 401 ? ' (token expired/invalid or domain out of scope)' : res.status === 403 ? ' (token lacks permission)' : '';
       throw new NsApiError(`GET ${path} → ${res.status}${hint}: ${detail}`, res.status, path, parsed);
     }
-    return parsed as T;
+    return parsed;
   }
+}
+
+/**
+ * The page size `get()` reads lists in. It is the platform's own default: a bare list request
+ * returns exactly 100, which proves the server serves pages of 100, so a page shorter than this is
+ * the end of the list and never a server-side cap. A larger page would save requests but cannot tell
+ * "the end" from "a server maximum below what was asked", which is the silent truncation this exists
+ * to prevent. (Verified live 2026-09-30: users 100 of 152, phonenumbers 100 of 158, dialrules 100 of
+ * 112 when read bare. `start` is the offset; `offset`, `page` and `skip` are ignored.)
+ */
+export const NS_LIST_PAGE_SIZE = 100;
+/** 100,000 records — a runaway guard, not an expected size. */
+const NS_LIST_MAX_PAGES = 1000;
+
+/** A list read that could not be completed. `partial` holds the records read before it stopped. */
+export class NsIncompleteListError extends Error {
+  constructor(
+    message: string,
+    public readonly path: string,
+    public readonly partial: readonly unknown[],
+  ) {
+    super(message);
+    this.name = 'NsIncompleteListError';
+  }
+}
+
+/** True when the caller already chose paging for this request. */
+function callerPages(path: string, query?: Record<string, string | number>): boolean {
+  if (query && ('limit' in query || 'start' in query)) return true;
+  const qs = path.indexOf('?');
+  if (qs < 0) return false;
+  const params = new URLSearchParams(path.slice(qs + 1));
+  return params.has('limit') || params.has('start');
+}
+
+/**
+ * Read every page of a v2 list through `fetchPage`, which performs ONE request with the given query.
+ * Exported so a client with its own transport (a write client's reads, a test) pages identically.
+ *
+ * - The caller set `limit`/`start` → one request, exactly as asked.
+ * - A non-array answer (a detail route) → returned from the first request unchanged.
+ * - A page LONGER than the page size → the route ignores `limit` and returned everything; returned.
+ * - A page identical to the previous one → the route ignores `start`: throws
+ *   {@link NsIncompleteListError} rather than return a list that looks complete and is not.
+ */
+export async function readAllPages(
+  fetchPage: (query: Record<string, string | number>) => Promise<unknown>,
+  path: string,
+  query?: Record<string, string | number>,
+): Promise<unknown> {
+  if (callerPages(path, query)) return fetchPage({ ...query });
+  const rows: unknown[] = [];
+  let previous = '';
+  for (let page = 0; page < NS_LIST_MAX_PAGES; page++) {
+    const res = await fetchPage({ ...query, limit: NS_LIST_PAGE_SIZE, start: rows.length });
+    if (!Array.isArray(res)) return page === 0 ? res : rows;
+    if (page === 0 && res.length > NS_LIST_PAGE_SIZE) return res;
+    const sig = JSON.stringify(res);
+    if (page > 0 && res.length > 0 && sig === previous) {
+      throw new NsIncompleteListError(`GET ${path}: the route ignored \`start\` (page ${page + 1} repeated page ${page}); stopped at ${rows.length} records`, path, rows);
+    }
+    rows.push(...res);
+    if (res.length < NS_LIST_PAGE_SIZE) return rows;
+    previous = sig;
+  }
+  throw new NsIncompleteListError(`GET ${path}: more than ${NS_LIST_MAX_PAGES} pages; stopped at ${rows.length} records`, path, rows);
 }
 
 /** Normalize a v2 response to an array of records (endpoints return an array or a bare object). */

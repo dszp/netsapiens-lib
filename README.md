@@ -307,6 +307,20 @@ excluding numbers that are already endpoint callbacks. **It is 0 whenever `snaps
 fully-migrated domain's every emergency caller ID as a billable line. An empty ARRAY is the other fact,
 "asked, and there are none", and that one does support a count.
 
+### Lists are read to the end
+
+NetSapiens v2 returns only the **first 100 records** of a list when the request has no `limit`, and
+the response gives no sign that anything is missing. `NsClient.get()` and `NsWriteClient.get()`
+therefore page every list with `limit=100&start=…` until a page comes back short, so `get()`,
+`listDomains()` and `fetchDomainSnapshot()` see a domain's 152nd user like its first.
+
+- To read one page on purpose (CDRs, a preview), pass your own `limit` or `start`, in `query` or in
+  the path. `get()` then sends exactly that one request.
+- If a route ignores `start` and paging can't finish, `get()` throws `NsIncompleteListError`, which
+  carries the records it did read in `partial`. It never returns a list that looks complete and isn't.
+- A large domain costs one request per 100 records for each list. On Cloudflare Workers, count those
+  against the subrequest limit.
+
 ### Read/write split by charter
 
 `NsClient` exposes **`get()` and nothing else**, and `verify()` only ever issues `GET /jwt`. That is a

@@ -18,7 +18,7 @@ in a browser.
 | `themes.ts` | Theme registry: node palettes + Mermaid base/look + app chrome, as plain data. |
 | `jwt.ts` | `ns_t` validation: `verify` (cached, live) / `validateJwtFormat` (local). |
 | `principal.ts` / `policy.ts` / `sensitivity.ts` | Identity normalization + a declarative allow-list policy engine. |
-| `nsClient.ts` | Read-only NS API v2 client (`NsClient`, `get()` only) + `fetchDomainSnapshot`. |
+| `nsClient.ts` | Read-only NS API v2 client (`NsClient`, `get()` only) + `fetchDomainSnapshot`. `readAllPages` pages every list past the platform's silent 100-record default; `NsWriteClient.get` uses it too. |
 | `nsWriteClient.ts` | The **separate** write client (`NsWriteClient`) — device provisioning; never mixed into `NsClient`, so the read client stays write-incapable. |
 | `nsSynchronous.ts` | Which operations accept the `synchronous` body flag (`supportsSynchronous`, `SYNCHRONOUS_OPERATIONS`). Data, not behaviour, so this client and any other NetSapiens client share one answer instead of drifting. See below. |
 | `nsSubscriptions.ts` | Event Subscriptions (`NsSubscriptionsClient`) + the pure `planSubscriptions` reconciler. A third client rather than methods on the other two: `NsClient` is read-only by charter, and `NsWriteClient` sends no body on `DELETE` — which `DELETE /subscriptions/{id}` requires. |

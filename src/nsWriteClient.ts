@@ -16,7 +16,7 @@
  * of its writes were confirmed when most were not. Shares the read client's SSRF guard and `NsApiError`.
  */
 import type { Rec } from './model.js';
-import { NsApiError, assertBareServer, asArray } from './nsClient.js';
+import { NsApiError, assertBareServer, asArray, readAllPages } from './nsClient.js';
 import { ensureNsDevice, type EnsureNsDeviceOptions, type EnsureNsDeviceResult } from './nsDevice.js';
 import { supportsSynchronous } from './nsSynchronous.js';
 
@@ -43,8 +43,9 @@ export class NsWriteClient {
   }
 
   // ── generic verbs (the growth surface) ──────────────────────────────────────
+  /** GET. A list route is paged to the end, exactly as `NsClient.get` does — see `readAllPages`. */
   get<T = unknown>(path: string, query?: Record<string, string | number>): Promise<T> {
-    return this.#request<T>('GET', path, undefined, query);
+    return readAllPages((q) => this.#request<unknown>('GET', path, undefined, q), path, query) as Promise<T>;
   }
   /**
    * POST. On an operation that accepts it, `synchronous:'yes'` is injected → 200 + the created
