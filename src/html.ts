@@ -144,10 +144,13 @@ export function renderFlowCard(g: FlowGraph, opts: CardOptions = {}): string {
   const notes = g.notes.length ? `<ul class="cf-notes">${g.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '';
   const mermaid = `<div class="mermaid">${escapeHtml(toMermaid(g, opts.theme ? { theme: opts.theme } : undefined))}</div>`;
   const title = `${escapeHtml(g.entity.kind === 'did' ? 'DID' : cap(g.entity.kind))}: ${escapeHtml(g.entity.label)}`;
+  // Themed cards are what customers see: the node count says roughly how big the flow is, an edge count
+  // means nothing to them. The legacy card keeps both (its output is byte-stable).
+  const meta = opts.theme ? `${g.nodes.length} nodes` : `${g.nodes.length} nodes · ${g.edges.length} edges`;
   if (opts.collapsible) {
     const back = opts.backToTop ? ` <a class="cf-top" href="#cf-top" onclick="event.stopPropagation()">↑ top</a>` : '';
     return `<details class="cf-card"${opts.theme ? ` id="${flowAnchorId(g)}"` : ''}${opts.open ? ' open' : ''}>
-      <summary><span class="cf-title">${title}</span><span class="cf-meta"> · ${g.nodes.length} nodes · ${g.edges.length} edges</span>${back}</summary>
+      <summary><span class="cf-title">${title}</span><span class="cf-meta"> · ${meta}</span>${back}</summary>
       ${mermaid}
       ${notes}
     </details>`;
@@ -155,7 +158,7 @@ export function renderFlowCard(g: FlowGraph, opts: CardOptions = {}): string {
   const idAttr = opts.theme ? ` id="${flowAnchorId(g)}"` : '';
   return `<section class="cf-card"${idAttr}>
       <h2>${title}</h2>
-      <div class="cf-meta">${g.nodes.length} nodes · ${g.edges.length} edges</div>
+      <div class="cf-meta">${meta}</div>
       ${mermaid}
       ${notes}
     </section>`;

@@ -26,6 +26,8 @@ check('legacy gallery does not load Pele', !legacy.includes('pele'));
 check('themed gallery loads pinned Pele with SRI', /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/pele@\d+\.\d+\.\d+\/dist\/pele\.global\.js" integrity="sha384-[^"]+" crossorigin="anonymous">/.test(themed));
 check('themed gallery does not load Mermaid', !/<script[^>]*mermaid/i.test(themed));
 check('themed gallery sanitizes renderer output (SVG XML parse + allowlist), never innerHTML', themed.includes("parseFromString(str, 'image/svg+xml')") && themed.includes('SAFE_EL') && !/\.innerHTML\s*=/.test(themed));
+check('themed card shows the node count but no edge count', /class="cf-meta">1 nodes</.test(themed) && ![...themed.matchAll(/class="cf-meta">([^<]*)</g)].some((m) => /edge/.test(m[1])));
+check('legacy card keeps nodes and edges', legacy.includes('1 nodes · 0 edges'));
 check('themed gallery includes the PNG rasterizer', themed.includes('function svgToPngBlob('));
 check('themed gallery has PNG, SVG and PDF controls', themed.includes("'Download PNG'") && themed.includes("'Download SVG'") && themed.includes("'Print or save as PDF (Letter)'"));
 

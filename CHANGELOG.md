@@ -13,6 +13,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   panel's light grey, with edge-label boxes in the same grey. They now use white for both, matching the
   printed PDF. Dark-theme exports keep the dark panel color, since their light text needs it.
 
+### Changed
+
+- Themed flow cards show the node count without the edge count ("24 nodes", not "24 nodes · 36 edges").
+  The legacy gallery is unchanged.
+
 ## 0.13.0 — 2026-10-17
 
 ### Changed
