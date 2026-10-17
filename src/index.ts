@@ -31,6 +31,8 @@ export {
   renderFlowCards,
   renderFlowCard,
   mermaidBootstrap,
+  peleScriptTag,
+  svgSanitizerScript,
   flowAnchorId,
   type GalleryOptions,
   type CardOptions,

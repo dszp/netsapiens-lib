@@ -16,7 +16,8 @@ Five capabilities, one dependency-free package:
 - **Call-flow resolver + renderers** — `resolveFlow(snapshot, ref)` walks a NetSapiens domain snapshot
   into a normalized `FlowGraph`; `toMermaid()` renders it to a Mermaid flowchart; `renderGalleryHtml()`
   / `renderFlowCards()` return HTML strings the caller can place anywhere. A themed gallery draws with
-  [Pele](https://github.com/obsidianmd/pele) and has PNG, SVG and print-to-PDF buttons for a single flow.
+  [Pele](https://github.com/obsidianmd/pele) and has PNG, SVG and print-to-PDF buttons for a single flow. A host that draws diagrams itself can
+  load the same pinned Pele build with `peleScriptTag()` and sanitize its output with `svgSanitizerScript()`.
 - **Identity + policy** — `toPrincipal()` normalizes a validated token into an effective identity
   (masking-aware: the effective user is the masked one, the `operator` is the reseller behind a
   `mask_chain`), and `can()` / `isAllowed()` gate features against it with a declarative,

@@ -3,7 +3,7 @@
  * the inline script. The drawing, PNG and print paths are browser-only (validated in a browser).
  * Run: `pnpm test:html`.
  */
-import { renderGalleryHtml } from './html.js';
+import { renderGalleryHtml, peleScriptTag, svgSanitizerScript } from './html.js';
 import type { FlowGraph } from './model.js';
 
 let pass = 0, fail = 0;
@@ -47,6 +47,12 @@ const hostile = renderGalleryHtml('x</script><script>alert(1)</script>', [g], { 
 const decl = /var CF_DOMAIN = ("(?:[^"\\]|\\.)*")/.exec(hostile);
 check('domain lands in the script as a JSON string', !!decl && JSON.parse(decl[1]) === 'x</script><script>alert(1)</script>');
 check('domain cannot close the script element', !!decl && !decl[1].includes('<'));
+
+// The two exports a host uses to render Pele itself (the standalone viewer does).
+check('peleScriptTag() is the pinned CDN build with SRI', /^<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/pele@\d+\.\d+\.\d+\/dist\/pele\.global\.js" integrity="sha384-[^"]+" crossorigin="anonymous"><\/script>$/.test(peleScriptTag()));
+check('peleScriptTag() is the same tag the themed gallery loads', themed.includes(peleScriptTag()));
+check('svgSanitizerScript() parses and defines cleanSvg', (() => { try { return new Function(svgSanitizerScript() + '\nreturn typeof cleanSvg === "function";')() === true; } catch { return false; } })());
+check('the themed gallery injects that same sanitizer', themed.includes(svgSanitizerScript()));
 
 console.log(`\nhtml.selftest: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

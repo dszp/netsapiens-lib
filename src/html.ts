@@ -37,11 +37,40 @@ const PELE_VERSION = '1.5.2';
 const PELE_CDN = `https://cdn.jsdelivr.net/npm/pele@${PELE_VERSION}/dist/pele.global.js`;
 const PELE_SRI = 'sha384-/Sx0ye42QCjTCAYgXAi3brT22Q08i5jdKIh+IvNApsxQKffbSQOgSOOViHIraVdA';
 
-/** Pele `<script>` tag (defines the global `pele`); SRI only on the pinned CDN build, as for Mermaid. */
-function peleScriptTag(src?: string): string {
+/** The Pele `<script>` tag (defines the global `pele`), pinned to the version this library tests
+ *  against. The default CDN build carries Subresource Integrity; a self-hosted `src` is emitted without
+ *  it, since its bytes are the caller's to vouch for. */
+export function peleScriptTag(src?: string): string {
   const url = src ?? PELE_CDN;
   const sri = url === PELE_CDN ? ` integrity="${PELE_SRI}" crossorigin="anonymous"` : '';
   return `<script src="${escapeHtml(url)}"${sri}></script>`;
+}
+
+/**
+ * Injectable browser JS defining `cleanSvg(svgString)`: the second escaping layer behind `toMermaid()`
+ * (Mermaid's `securityLevel: 'strict'` was the old one). Pele promises SVG with no scripts, handlers or
+ * HTML; this enforces it rather than trusting it. It parses the string as SVG XML (never as HTML),
+ * keeps only the SVG elements and presentation attributes Pele uses for flowcharts, drops any style
+ * that could load a URL, and returns an imported `<svg>` node to insert. Output that doesn't parse as
+ * SVG throws. A host that renders Pele output itself must pass it through this, never `innerHTML`.
+ */
+export function svgSanitizerScript(): string {
+  return `var SVG_NS='http://www.w3.org/2000/svg';
+var SAFE_EL={ svg:1, g:1, path:1, rect:1, circle:1, ellipse:1, line:1, polyline:1, polygon:1, text:1, tspan:1, title:1, desc:1 };
+var SAFE_ATTR={ 'aria-roledescription':1, 'class':1, d:1, fill:1, 'fill-opacity':1, 'font-family':1, 'font-size':1, 'font-style':1, 'font-weight':1, height:1, opacity:1, points:1, r:1, rx:1, ry:1, cx:1, cy:1, role:1, stroke:1, 'stroke-dasharray':1, 'stroke-linecap':1, 'stroke-linejoin':1, 'stroke-opacity':1, 'stroke-width':1, style:1, 'text-anchor':1, 'dominant-baseline':1, transform:1, viewBox:1, width:1, x:1, y:1, x1:1, y1:1, x2:1, y2:1, dx:1, dy:1, 'xml:space':1, xmlns:1, 'data-id':1 };
+function cleanSvg(str){
+  var doc=new DOMParser().parseFromString(str, 'image/svg+xml'), root=doc.documentElement;
+  if(!root || root.namespaceURI!==SVG_NS || root.localName!=='svg' || doc.getElementsByTagName('parsererror').length){ throw new Error('renderer returned unusable SVG'); }
+  var all=[root].concat([].slice.call(root.getElementsByTagName('*')));
+  for(var k=all.length-1;k>=0;k--){
+    var n=all[k];
+    if(n.namespaceURI!==SVG_NS || !SAFE_EL[n.localName]){ if(n!==root && n.parentNode){ n.parentNode.removeChild(n); } continue; }
+    [].slice.call(n.attributes).forEach(function(a){
+      if(!SAFE_ATTR[a.name] || (a.name==='style' && /url\\s*\\(|@import|expression\\s*\\(/i.test(a.value))){ n.removeAttribute(a.name); }
+    });
+  }
+  return document.importNode(root, true);
+}`;
 }
 
 /** JSON for an inline `<script>`: `<` escaped so a value can never close the script element. */
@@ -387,26 +416,7 @@ function peleGalleryScript(domain: string, bg: string): string {
     // responsive/autoDirection off: the pan/zoom view sizes the diagram itself, and a layout that
     // flips direction with the iframe width would make the ⇄ button's state a lie.
     var CF_RENDER = { responsive:false, autoDirection:false, fontFamily:'system-ui, sans-serif', fontSize:14 };
-    // The second escaping layer behind mermaid.ts (Mermaid's securityLevel:'strict' was the old one).
-    // Pele promises SVG with no scripts, handlers or HTML; this enforces it rather than trusting it.
-    // Parse as SVG XML (never as HTML), keep only the SVG elements and presentation attributes Pele
-    // uses for flowcharts, drop any style that could load a URL, and insert the parsed node.
-    var SVG_NS='http://www.w3.org/2000/svg';
-    var SAFE_EL={ svg:1, g:1, path:1, rect:1, circle:1, ellipse:1, line:1, polyline:1, polygon:1, text:1, tspan:1, title:1, desc:1 };
-    var SAFE_ATTR={ 'aria-roledescription':1, 'class':1, d:1, fill:1, 'fill-opacity':1, 'font-family':1, 'font-size':1, 'font-style':1, 'font-weight':1, height:1, opacity:1, points:1, r:1, rx:1, ry:1, cx:1, cy:1, role:1, stroke:1, 'stroke-dasharray':1, 'stroke-linecap':1, 'stroke-linejoin':1, 'stroke-opacity':1, 'stroke-width':1, style:1, 'text-anchor':1, 'dominant-baseline':1, transform:1, viewBox:1, width:1, x:1, y:1, x1:1, y1:1, x2:1, y2:1, dx:1, dy:1, 'xml:space':1, xmlns:1, 'data-id':1 };
-    function cleanSvg(str){
-      var doc=new DOMParser().parseFromString(str, 'image/svg+xml'), root=doc.documentElement;
-      if(!root || root.namespaceURI!==SVG_NS || root.localName!=='svg' || doc.getElementsByTagName('parsererror').length){ throw new Error('renderer returned unusable SVG'); }
-      var all=[root].concat([].slice.call(root.getElementsByTagName('*')));
-      for(var k=all.length-1;k>=0;k--){
-        var n=all[k];
-        if(n.namespaceURI!==SVG_NS || !SAFE_EL[n.localName]){ if(n!==root && n.parentNode){ n.parentNode.removeChild(n); } continue; }
-        [].slice.call(n.attributes).forEach(function(a){
-          if(!SAFE_ATTR[a.name] || (a.name==='style' && /url\\s*\\(|@import|expression\\s*\\(/i.test(a.value))){ n.removeAttribute(a.name); }
-        });
-      }
-      return document.importNode(root, true);
-    }
+    ${svgSanitizerScript()}
     function draw(el, i){
       if(!el.getAttribute('data-src')){ el.setAttribute('data-src', el.textContent); }
       try { el.replaceChildren(cleanSvg(pele.render(el.getAttribute('data-src'), Object.assign({ idPrefix:'cf'+i+'-' }, CF_RENDER)).svg)); }
