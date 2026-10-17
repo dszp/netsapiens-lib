@@ -328,7 +328,7 @@ ${peleScriptTag(peleSrc)}
   .mermaid.cf-pz { overflow:hidden; cursor:grab; position:relative; text-align:left; padding:0; height:70vh; touch-action:none; }
   .mermaid.cf-pz svg { position:absolute; top:0; left:0; max-width:none !important; height:auto; }
   .cf-pz-ctl { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:5; }
-  .cf-pz-ctl button { width:30px; height:30px; border:1px solid ${c.cardBorder}; background:${c.cardBg}; color:${c.text}; border-radius:6px; cursor:pointer; font:16px/1 system-ui,sans-serif; ${c.shadow} }
+  .cf-pz-ctl button { width:30px; height:30px; padding:0; display:flex; align-items:center; justify-content:center; border:1px solid ${c.cardBorder}; background:${c.cardBg}; color:${c.text}; border-radius:6px; cursor:pointer; font:16px/1 system-ui,sans-serif; ${c.shadow} }
   .cf-pz-ctl button:hover { border-color:${brandAccent}; color:${brandAccent}; }
   .cf-pz-ctl button.cf-txt { font:600 10px/1 system-ui,sans-serif; }
   .cf-pz-ctl button:disabled { opacity:.5; cursor:progress; }

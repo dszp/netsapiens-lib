@@ -5,6 +5,13 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.13.2 — 2026-10-17
+
+### Fixed
+
+- The single-flow view's control buttons center their labels. "PNG", "SVG" and "PDF" sat to the right
+  because the browser's default button padding left them less room than their text.
+
 ## 0.13.1 — 2026-10-17
 
 ### Fixed
