@@ -38,5 +38,16 @@ check('emitted __svgSize matches resolveSvgSize on a Mermaid-shaped SVG', (() =>
   return a.width === b.width && a.height === b.height && a.width === 917 && a.height === 523;
 })());
 
+// ---- __cssVarNames: which custom properties get copied from the live element onto the clone ----
+const cssVarNames = new Function(src + '\nreturn __cssVarNames;')() as (s: string) => string[];
+check('emitted __cssVarNames: finds names in attributes and styles, de-duplicated, in order', (() => {
+  const r = cssVarNames('<svg style="--_bg:var(--pele-bg,#fff);color:var( --_fg)"><rect fill="var(--_bg)"/><path stroke="var(--_l)"/></svg>');
+  return JSON.stringify(r) === JSON.stringify(['--pele-bg', '--_fg', '--_bg', '--_l']);
+})());
+check('emitted __cssVarNames: none → empty', cssVarNames('<svg fill="#fff"></svg>').length === 0);
+check('defines svgToSvgBlob', /function\s+svgToSvgBlob\s*\(/.test(src) && src.includes('image/svg+xml'));
+check('PNG and SVG share one standalone copy', (src.match(/= __standaloneSvg\(svg\)/g) || []).length === 2);
+check('svgToPngBlob strips on-screen transform before sizing', src.includes("removeProperty(p)") && src.includes("'transform'"));
+
 console.log(`\nraster.selftest: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

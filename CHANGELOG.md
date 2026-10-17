@@ -5,6 +5,39 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.13.0 — 2026-10-17
+
+### Changed
+
+- **The themed gallery draws diagrams with [Pele](https://github.com/obsidianmd/pele) instead of
+  Mermaid.** This applies to `renderGalleryHtml()` with a `theme`. Pele reads the same Mermaid text and
+  writes plain SVG, so node and edge labels no longer clip. The page loads Pele 1.5.2 from jsDelivr,
+  pinned with Subresource Integrity.
+  - Node colors from `classDef` still apply. Mermaid's `look: neo`, `themeVariables` and `layout`
+    settings are ignored; the page sets Pele's `--pele-*` CSS variables from the theme instead.
+  - `<small>` in a label renders at full size. `<b>` and `<i>` still work.
+  - If your page's Content Security Policy allows Mermaid from jsDelivr, it allows Pele too. To
+    self-host, pass `peleSrc`.
+- `svgToPngBlob()` (from `rasterizerScript()`) now replaces each `var()` in the SVG with the live
+  element's computed value, and drops on-screen `transform` and sizing styles before drawing. A
+  diagram colored by page CSS variables now exports with its colors.
+
+### Added
+
+- **Single-flow galleries have PNG, SVG and PDF buttons.** PNG downloads the diagram at 2× scale. SVG
+  downloads it as a vector file with its colors written in, for editing or scaling. PDF
+  opens the print dialog, laid out for US Letter. A flow that is legible on one page (at least 70%
+  scale) prints on one page in the orientation that fits it better. A larger flow is cut between nodes
+  into strips, packed several to a page where they fit. The browser's own Print command uses the same
+  layout.
+- `svgToSvgBlob()` in `rasterizerScript()`: the same standalone copy as the PNG export, as an SVG file.
+- `GalleryOptions.peleSrc` loads Pele from your own URL.
+
+### Unchanged
+
+- The legacy gallery (no `theme`), `renderFlowCards()`, `mermaidBootstrap()` and `toMermaid()` produce
+  the same output as 0.12.0 and still use Mermaid.
+
 ## 0.12.0 — 2026-09-30
 
 ### Fixed

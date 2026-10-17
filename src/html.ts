@@ -6,6 +6,7 @@
 
 import type { FlowGraph } from './model.js';
 import { toMermaid, type FlowTheme } from './mermaid.js';
+import { rasterizerScript } from './raster.js';
 
 // Pinned Mermaid build + Subresource Integrity. A floating `mermaid@11` tag lets jsDelivr serve whatever
 // the latest 11.x is with NO integrity guarantee — a compromised/substituted CDN response would execute in
@@ -23,6 +24,29 @@ function mermaidScriptTag(src?: string): string {
   const url = src ?? MERMAID_CDN;
   const sri = url === MERMAID_CDN ? ` integrity="${MERMAID_SRI}" crossorigin="anonymous"` : '';
   return `<script src="${escapeHtml(url)}"${sri}></script>`;
+}
+
+// The THEMED gallery renders with Pele (github.com/obsidianmd/pele) instead: it parses Mermaid syntax
+// but lays out and measures text itself and emits plain SVG — no foreignObject, no HTML — so labels
+// stop clipping and the SVG rasterizes to PNG / prints without depending on page CSS. Same pinning
+// rule as Mermaid above (exact version + SRI, bump both together):
+//   curl -s https://cdn.jsdelivr.net/npm/pele@<v>/dist/pele.global.js | openssl dgst -sha384 -binary | openssl base64 -A
+// Pele ignores Mermaid's `look`, `themeVariables` and `layout` config; the gallery maps the theme onto
+// its `--pele-*` CSS variables instead, and `classDef` palettes still apply.
+const PELE_VERSION = '1.5.2';
+const PELE_CDN = `https://cdn.jsdelivr.net/npm/pele@${PELE_VERSION}/dist/pele.global.js`;
+const PELE_SRI = 'sha384-/Sx0ye42QCjTCAYgXAi3brT22Q08i5jdKIh+IvNApsxQKffbSQOgSOOViHIraVdA';
+
+/** Pele `<script>` tag (defines the global `pele`); SRI only on the pinned CDN build, as for Mermaid. */
+function peleScriptTag(src?: string): string {
+  const url = src ?? PELE_CDN;
+  const sri = url === PELE_CDN ? ` integrity="${PELE_SRI}" crossorigin="anonymous"` : '';
+  return `<script src="${escapeHtml(url)}"${sri}></script>`;
+}
+
+/** JSON for an inline `<script>`: `<` escaped so a value can never close the script element. */
+function scriptJson(v: unknown): string {
+  return JSON.stringify(v).replace(/</g, '\\u003c');
 }
 
 /** Left-align multi-line node content (agent / device / queue lists) + edge labels so they read as
@@ -91,8 +115,12 @@ export interface CardOptions {
 }
 
 export interface GalleryOptions extends CardOptions {
-  /** Load Mermaid from this URL (CDN by default). Override to self-host / inline for CSP. */
+  /** Legacy (no-theme) gallery only: load Mermaid from this URL (CDN by default). Override to
+   *  self-host / inline for CSP. */
   mermaidSrc?: string;
+  /** Themed gallery only: load Pele from this URL (pinned CDN build by default). Override to
+   *  self-host / inline for CSP. */
+  peleSrc?: string;
   /** Extra note shown under the title. */
   subtitle?: string;
   /** Brand accent for subtle highlights — links, the "Legend:" lead, the card's top rule, and the
@@ -156,7 +184,7 @@ export function renderGalleryHtml(domain: string, graphs: FlowGraph[], opts: Gal
   const subtitle = opts.subtitle ?? `resolved from snapshot · ${graphs.length} flows`;
   // Themed path (light for a review context, or explicit dark-neo). No theme → the original dark
   // document below, byte-identical (the Worker depends on this).
-  if (opts.theme) return themedGalleryHtml(domain, graphs, mermaidSrc, subtitle, opts.theme, opts.expand, opts.accent);
+  if (opts.theme) return themedGalleryHtml(domain, graphs, opts.peleSrc, subtitle, opts.theme, opts.expand, opts.accent);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Call Flows — ${escapeHtml(domain)}</title>
@@ -224,7 +252,7 @@ ${mermaidScriptTag(mermaidSrc)}
 function themedGalleryHtml(
   domain: string,
   graphs: FlowGraph[],
-  mermaidSrc: string,
+  peleSrc: string | undefined,
   subtitle: string,
   theme: FlowTheme,
   expand?: Set<string>,
@@ -234,7 +262,8 @@ function themedGalleryHtml(
   const c = light
     ? { scheme: 'light', pageBg: '#fafafa', text: '#1e293b', sub: '#64748b', cardBg: '#ffffff', cardBorder: '#e2e8f0', meta: '#64748b', mermaidBg: '#f8fafc', notes: '#b45309', legendText: '#475569', legendBg: '#ffffff', lightboxBg: 'rgba(248,250,252,.96)', hint: '#64748b', shadow: 'box-shadow:0 1px 2px rgba(0,0,0,.04);', link: '#21618c' }
     : { scheme: 'dark', pageBg: '#0f1115', text: '#e6e6e6', sub: '#8a94a6', cardBg: '#161a22', cardBorder: '#232a36', meta: '#7b8494', mermaidBg: '#0c0e12', notes: '#c9a24a', legendText: '#aab', legendBg: '#161a22', lightboxBg: 'rgba(6,8,12,.95)', hint: '#8a94a6', shadow: '', link: '#7db3e6' };
-  const initTheme = light ? 'base' : 'dark';
+  // The Mermaid frontmatter's themeVariables (mermaid.ts), restated as Pele's CSS variables.
+  const line = light ? '#64748b' : '#8a94a6';
   const brandAccent = safeAccent(accent, c.link);
   const single = graphs.length === 1; // a one-flow gallery (e.g. the portal modal) needs no contents nav
   const isOpen = (g: FlowGraph) => single || (!!expand && expand.has(flowAnchorId(g)));
@@ -263,7 +292,7 @@ function themedGalleryHtml(
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Call Flows — ${escapeHtml(domain)}</title>
-${mermaidScriptTag(mermaidSrc)}
+${peleScriptTag(peleSrc)}
 <style>
   :root { color-scheme: ${c.scheme}; scroll-behavior:smooth; }
   body { background:${c.pageBg}; color:${c.text}; font:15px/1.5 system-ui,sans-serif; margin:0; padding:24px; }
@@ -298,7 +327,24 @@ ${mermaidScriptTag(mermaidSrc)}
   .cf-pz-ctl { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:5; }
   .cf-pz-ctl button { width:30px; height:30px; border:1px solid ${c.cardBorder}; background:${c.cardBg}; color:${c.text}; border-radius:6px; cursor:pointer; font:16px/1 system-ui,sans-serif; ${c.shadow} }
   .cf-pz-ctl button:hover { border-color:${brandAccent}; color:${brandAccent}; }
-  ${FLOW_LABEL_CSS}
+  .cf-pz-ctl button.cf-txt { font:600 10px/1 system-ui,sans-serif; }
+  .cf-pz-ctl button:disabled { opacity:.5; cursor:progress; }
+  .mermaid, #cf-print { --pele-bg:${c.mermaidBg}; --pele-fg:${c.text}; --pele-line:${line}; --pele-muted:${c.meta}; --pele-border:${c.cardBorder}; --pele-font:system-ui, sans-serif; }
+  .cf-err { color:${c.notes}; font-size:13px; white-space:pre-wrap; text-align:left; }
+  #cf-print { display:none; }
+  @media print {
+    /* Only while the print pages exist (built on beforeprint for a single-flow gallery); a
+       multi-flow gallery prints as the page. Nodes keep their palette, so print it exactly. */
+    html.cf-printing { color-scheme:light; background:#fff; }
+    html.cf-printing body { background:#fff; padding:0; margin:0; }
+    html.cf-printing body > :not(#cf-print) { display:none !important; }
+    html.cf-printing #cf-print { display:block; --pele-bg:#fff; --pele-fg:#1e293b; --pele-line:#64748b; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+    .cf-print-page { break-after:page; page-break-after:always; }
+    .cf-print-page:last-child { break-after:auto; page-break-after:auto; }
+    .cf-print-head { font:600 12px/16px system-ui, sans-serif; color:#1e293b; height:22px; margin:0 0 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .cf-print-strips { display:flex; align-items:flex-start; justify-content:center; }
+    .cf-print-strips svg { display:block; flex:none; }
+  }
   .cf-notes { padding:0 0 14px 34px; color:${c.notes}; font-size:12.5px; }
   .cf-notes li { margin:2px 0; }
   .cf-lightbox { position:fixed; inset:0; background:${c.lightboxBg}; display:none; z-index:9999; padding:20px; cursor:zoom-out; }
@@ -322,25 +368,46 @@ ${mermaidScriptTag(mermaidSrc)}
   </nav>`}
   ${cards}
   <div id="cf-lightbox" class="cf-lightbox"><span class="cf-lightbox-hint">click / Esc to close</span><div class="cf-lightbox-inner"></div></div>
-  ${mermaidBootstrapInline(initTheme)}
+  <div id="cf-print"></div>
+  <script>${rasterizerScript()}</script>
+  ${peleGalleryScript(domain, c.mermaidBg)}
 </body></html>`;
 }
 
-/** The gallery's own Mermaid init + lightbox script (self-contained; not the host-page bootstrap). */
-function mermaidBootstrapInline(initTheme: string): string {
+/** The themed gallery's script: draws each `.mermaid` block's source with Pele, then wires the
+ *  single-flow pan/zoom view (the portal modal) or the multi-flow lightbox. `domain` names exported
+ *  files; `bg` is the PNG background (the diagram panel's color). */
+function peleGalleryScript(domain: string, bg: string): string {
   return `<script>
-    mermaid.initialize({ startOnLoad:false, theme:'${initTheme}', securityLevel:'strict', flowchart:{ ${FLOWCHART_CFG} } });
-    document.querySelectorAll('.mermaid').forEach(function(el){ if(!el.getAttribute('data-src')){ el.setAttribute('data-src', el.textContent); } });
-    mermaid.run({ querySelector:'.mermaid' }).then(function(){
-      var els = document.querySelectorAll('.mermaid');
-      // Single-flow (the portal modal): scroll/drag pan, Shift+scroll or +/- buttons zoom, flip layout.
-      if (els.length === 1) { panZoom(els[0]); } else { lightbox(); }
-    });
+    var CF_DOMAIN = ${scriptJson(domain)}, CF_BG = ${scriptJson(bg)};
+    // responsive/autoDirection off: the pan/zoom view sizes the diagram itself, and a layout that
+    // flips direction with the iframe width would make the ⇄ button's state a lie.
+    var CF_RENDER = { responsive:false, autoDirection:false, fontFamily:'system-ui, sans-serif', fontSize:14 };
+    function draw(el, i){
+      if(!el.getAttribute('data-src')){ el.setAttribute('data-src', el.textContent); }
+      try { el.innerHTML = pele.render(el.getAttribute('data-src'), Object.assign({ idPrefix:'cf'+i+'-' }, CF_RENDER)).svg; }
+      catch(e){ var p=document.createElement('div'); p.className='cf-err'; p.textContent='This diagram could not be drawn: '+(e && e.message || e); el.replaceChildren(p); }
+    }
+    // A copy of a drawn diagram without the on-screen sizing/pan styles. Only those are removed: Pele
+    // declares its color variables in the root style attribute, so dropping the whole attribute
+    // would strip the diagram's colors.
+    function bareClone(svg){
+      var c=svg.cloneNode(true);
+      ['transform','transform-origin','position','top','left','max-width','height','width'].forEach(function(p){ c.style.removeProperty(p); });
+      return c;
+    }
+    var els = document.querySelectorAll('.mermaid');
+    els.forEach(draw);
+    // Single-flow (the portal modal): scroll/drag pan, Shift+scroll or +/- buttons zoom, flip layout.
+    if (els.length === 1) { panZoom(els[0]); printOnBeforePrint(els[0]); } else { lightbox(); }
+    function fileBase(el){
+      var card=el.closest('[id^="flow-"]'), id=card ? card.id.replace(/^flow-/,'') : 'flow';
+      return (CF_DOMAIN+'-'+id).replace(/[^A-Za-z0-9._-]+/g,'_');
+    }
     function panZoom(el){
       var svg = el.querySelector('svg'); if(!svg) return;
       el.classList.add('cf-pz');
-      // Pin the SVG to its natural viewBox pixel size so our transform (not mermaid's width:100% +
-      // viewBox auto-scaling) fully controls the displayed size — otherwise fit measurements are wrong.
+      // Pin the SVG to its natural viewBox pixel size so our transform fully controls the displayed size.
       var vb=(svg.viewBox&&svg.viewBox.baseVal)||{};
       var natW=vb.width||svg.getBoundingClientRect().width, natH=vb.height||svg.getBoundingClientRect().height;
       svg.setAttribute('width', natW); svg.setAttribute('height', natH); svg.style.maxWidth='none'; svg.style.transformOrigin='0 0';
@@ -362,17 +429,32 @@ function mermaidBootstrapInline(initTheme: string): string {
         var cur=(src.match(/flowchart\\s+(TB|TD|LR|RL|BT)/)||[])[1]||'TD';
         var next=(cur==='LR'||cur==='RL')?'TD':'LR';
         el.setAttribute('data-src', src.replace(/flowchart\\s+(TB|TD|LR|RL|BT)/, 'flowchart '+next));
-        var oc=el.querySelector('.cf-pz-ctl'); if(oc){ oc.remove(); }
-        el.classList.remove('cf-pz'); el.removeAttribute('data-processed'); el.textContent=el.getAttribute('data-src');
-        mermaid.run({ nodes:[el] }).then(function(){ panZoom(el); });
+        el.classList.remove('cf-pz'); draw(el, 0); panZoom(el);
+      }
+      function save(blob, ext){
+        var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fileBase(el)+'.'+ext;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+      }
+      async function png(btn){
+        btn.disabled=true;
+        try { save(await svgToPngBlob(st.svg, { scale:2, background:CF_BG }), 'png'); }
+        catch(e){ alert('PNG export failed: '+(e && e.message || e)); }
+        finally { btn.disabled=false; }
+      }
+      function svgFile(){
+        try { save(svgToSvgBlob(st.svg, { background:CF_BG }), 'svg'); }
+        catch(e){ alert('SVG export failed: '+(e && e.message || e)); }
       }
       var oldc=el.querySelector('.cf-pz-ctl'); if(oldc){ oldc.remove(); }
       var ctl=document.createElement('div'); ctl.className='cf-pz-ctl';
-      function mk(t,tip,f){ var b=document.createElement('button'); b.type='button'; b.textContent=t; b.title=tip; b.addEventListener('click', function(e){ e.stopPropagation(); f(); }); ctl.appendChild(b); }
+      function mk(t,tip,f){ var b=document.createElement('button'); b.type='button'; b.textContent=t; if(t.length>1){ b.className='cf-txt'; } b.title=tip; b.setAttribute('aria-label', tip); b.addEventListener('click', function(e){ e.stopPropagation(); f(b); }); ctl.appendChild(b); }
       mk('+','Zoom in', function(){ st.zoomAt(1.2, el.clientWidth/2, 0); });
       mk('−','Zoom out', function(){ st.zoomAt(1/1.2, el.clientWidth/2, 0); });
       mk('↺','Reset view', function(){ st.fit(); });
       mk('⇄','Flip layout (horizontal / vertical)', flip);
+      mk('PNG','Download PNG', png);
+      mk('SVG','Download SVG', svgFile);
+      mk('PDF','Print or save as PDF (Letter)', function(){ window.print(); });
       el.appendChild(ctl);
       if(!el._pzBound){
         el._pzBound=true;
@@ -389,6 +471,96 @@ function mermaidBootstrapInline(initTheme: string): string {
       }
       requestAnimationFrame(function(){ st.fit(); }); setTimeout(function(){ st.fit(); }, 80);
     }
+    // Print / PDF on US Letter. The whole diagram goes on one page when it stays legible there
+    // (scale ≥ MIN_K; 0.7 puts the 14px labels at about 7.4pt), in whichever orientation scales it
+    // larger. Otherwise it is cut by viewBox into strips along one axis: the fewest strips that keep
+    // scale ≥ MIN_K, enlarged to fill them (never past 1×). Strips are packed several to a page when
+    // they fit — stacked for a wide flow, side by side for a tall, narrow one — and the orientation and
+    // axis chosen are whichever print on the fewest pages. Each cut moves back to the nearest gap
+    // between nodes so no box is split across strips (edges may be); with no gap in the back half of
+    // the strip it stays where it was. Built on beforeprint so the browser's own Print command gets the
+    // same layout as the button.
+    function printOnBeforePrint(el){
+      var IN=96, M=0.4*IN, HEAD=28, GAP=16, MIN_K=0.7;
+      function area(o){ var w=(o==='landscape'?11:8.5)*IN-2*M, h=(o==='landscape'?8.5:11)*IN-2*M-HEAD; return { w:w, h:h }; }
+      function plan(W, H){
+        var best=null;
+        ['portrait','landscape'].forEach(function(o){
+          var a=area(o), k=Math.min(a.w/W, a.h/H, 1);
+          if(k>=MIN_K && (!best || k>best.k)){ best={ o:o, k:k, axis:'y', n:1, per:1, pages:1 }; }
+        });
+        if(best) return best;
+        ['portrait','landscape'].forEach(function(o){
+          var a=area(o);
+          ['y','x'].forEach(function(axis){
+            var across=axis==='y' ? a.w/W : a.h/H, along=axis==='y' ? a.h/H : a.w/W;
+            var kMax=Math.min(across, 1), n=Math.max(1, Math.ceil(Math.min(kMax, MIN_K)/along - 1e-6));
+            var k=Math.min(kMax, n*along), cross=(axis==='y' ? W : H)*k, room=axis==='y' ? a.w : a.h;
+            var per=Math.max(1, Math.min(n, Math.floor((room+GAP)/(cross+GAP)))), c={ o:o, k:k, axis:axis, n:n, per:per, pages:Math.ceil(n/per) };
+            var ok=c.k>=MIN_K, bok=best && best.k>=MIN_K;
+            if(!best || (ok && !bok) || (ok===bok && (ok ? (c.pages<best.pages || (c.pages===best.pages && c.k>best.k)) : c.k>best.k))){ best=c; }
+          });
+        });
+        return best;
+      }
+      window.addEventListener('beforeprint', function(){
+        var src=el._pz && el._pz.svg; if(!src) return;
+        var vb=src.viewBox.baseVal, W=vb.width, H=vb.height, p=plan(W, H), a=area(p.o);
+        var title=(el.closest('.cf-card') && el.closest('.cf-card').querySelector('h2'));
+        var head=(title ? title.textContent+' · ' : '')+CF_DOMAIN;
+        var out=document.getElementById('cf-print'); out.replaceChildren();
+        var page=null, box=null, room=p.axis==='y' ? a.h : a.w;
+        var o0=p.axis==='y' ? vb.y : vb.x, len=p.axis==='y' ? H : W, spans=[];
+        if(p.n>1){
+          // Node extents along the cut axis, in viewBox units (from on-screen boxes ÷ current scale).
+          // A cut within 4 units of a node counts as inside it: the stroke draws past the box.
+          var sr=src.getBoundingClientRect(), sc=sr.width/W;
+          src.querySelectorAll('.pele-node').forEach(function(nd){
+            var r=nd.getBoundingClientRect();
+            spans.push(p.axis==='y' ? [vb.y+(r.top-sr.top)/sc, vb.y+(r.bottom-sr.top)/sc] : [vb.x+(r.left-sr.left)/sc, vb.x+(r.right-sr.left)/sc]);
+          });
+        }
+        function cutsFor(step){
+          var cs=[o0];
+          while(cs[cs.length-1]+step < o0+len-0.5){
+            var from=cs[cs.length-1], c=from+step, moved=true;
+            while(moved){ moved=false; spans.forEach(function(sp){ if(c>sp[0]-4 && c<sp[1]+4){ c=sp[0]-6; moved=true; } }); }
+            cs.push(c>from+step/2 ? c : from+step);
+          }
+          cs.push(o0+len); return cs;
+        }
+        // Snapping shortens strips, which can add one; give back up to 30% of scale (never below
+        // MIN_K) to keep the planned strip count.
+        var cuts=cutsFor(room/p.k);
+        for(var j=1; j<=10 && cuts.length-1>p.n; j++){
+          var kj=p.k*(1-0.03*j); if(kj<MIN_K){ break; }
+          var cj=cutsFor(room/kj); if(cj.length-1<=p.n){ cuts=cj; p.k=kj; }
+        }
+        p.n=cuts.length-1; p.pages=Math.ceil(p.n/p.per);
+        for(var i=0;i<p.n;i++){
+          if(i%p.per===0){
+            var pg=i/p.per;
+            page=document.createElement('div'); page.className='cf-print-page';
+            var h=document.createElement('div'); h.className='cf-print-head'; h.textContent=head+(p.pages>1 ? ' · page '+(pg+1)+' of '+p.pages : ''); page.appendChild(h);
+            box=document.createElement('div'); box.className='cf-print-strips';
+            box.style.flexDirection=p.axis==='y' ? 'row' : 'column'; box.style.gap=GAP+'px';
+            page.appendChild(box); out.appendChild(page);
+          }
+          var s=bareClone(src);
+          var x=vb.x, y=vb.y, w=W, hh=H;
+          if(p.axis==='y'){ y=cuts[i]; hh=cuts[i+1]-cuts[i]; } else { x=cuts[i]; w=cuts[i+1]-cuts[i]; }
+          s.setAttribute('viewBox', x+' '+y+' '+w+' '+hh); s.setAttribute('width', w*p.k); s.setAttribute('height', hh*p.k);
+          s.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+          box.appendChild(s);
+        }
+        var ps=document.getElementById('cf-page') || document.head.appendChild(Object.assign(document.createElement('style'), { id:'cf-page' }));
+        ps.textContent='@page { size: letter '+p.o+'; margin: 0.4in; }';
+        document.documentElement.classList.add('cf-printing');
+      });
+      window.addEventListener('afterprint', function(){
+        document.documentElement.classList.remove('cf-printing'); document.getElementById('cf-print').replaceChildren();
+      });
+    }
     function lightbox(){
       var box = document.getElementById('cf-lightbox'); if(!box){ return; }
       var inner = box.querySelector('.cf-lightbox-inner');
@@ -397,7 +569,7 @@ function mermaidBootstrapInline(initTheme: string): string {
         var card = e.target.closest ? e.target.closest('.mermaid') : null;
         if (card && !box.contains(card)) {
           var svg = card.querySelector('svg'); if (!svg) return;
-          var clone = svg.cloneNode(true); clone.removeAttribute('height'); clone.removeAttribute('style');
+          var clone = bareClone(svg); clone.removeAttribute('height');
           inner.replaceChildren(clone); box.classList.add('open');
         } else if (box.classList.contains('open')) { close(); }
       });

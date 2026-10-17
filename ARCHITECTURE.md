@@ -13,7 +13,7 @@ in a browser.
 | `model.ts` | The `FlowGraph` contract — renderer-agnostic, the real interface. |
 | `resolver.ts` | Deterministic snapshot → `FlowGraph` walker (`resolveFlow`, `listEntities`). |
 | `mermaid.ts` | `FlowGraph` → Mermaid (shape + color per node kind). |
-| `html.ts` | `renderGalleryHtml` / `renderFlowCards` — returns a string; the caller picks the sink. |
+| `html.ts` | `renderGalleryHtml` / `renderFlowCards` — returns a string; the caller picks the sink. The themed gallery draws with Pele; the legacy gallery and `mermaidBootstrap` use Mermaid. |
 | `raster.ts` | Browser-side SVG → PNG rasterizer source. |
 | `themes.ts` | Theme registry: node palettes + Mermaid base/look + app chrome, as plain data. |
 | `jwt.ts` | `ns_t` validation: `verify` (cached, live) / `validateJwtFormat` (local). |
@@ -86,7 +86,8 @@ matching is exact, with no wildcards.
 
 ## Rendering gotchas
 
-These look like nitpicks and are not — each one is a bug that reached a real diagram.
+These look like nitpicks and are not — each one is a bug that reached a real diagram. The `PAD` and
+edge-label items concern Mermaid only; the themed gallery draws with Pele, which measures its own text.
 
 - **`PAD` is a measurement kludge for NODE labels only** (`mermaid.ts` `quote()`). Mermaid
   under-measures emoji width and clips the node box; PAD buys slack. **Edge labels must NOT get PAD** —
@@ -101,6 +102,12 @@ These look like nitpicks and are not — each one is a bug that reached a real d
   `FLOW_LABEL_CSS`; a host that injects its own CSS must mirror it.
 - **Mermaid IDs must never carry data.** `toMermaid()` emits synthetic `n<i>` IDs; NS data goes only in
   quoted labels. Data in an ID position makes `mermaid.render()` throw on real domains.
+- **Pele's colors live in CSS variables declared on the root `<svg>`'s `style`.** A copy made for
+  printing, the lightbox or a PNG must keep that attribute and remove only sizing and transform
+  properties; dropping the whole attribute strips the colors. A PNG or SVG export also loses any
+  `--pele-*` value the page sets, and Pele writes `var()` into presentation attributes
+  (`stroke="var(--_l)"`), which librsvg and editors don't resolve. So the export copy
+  (`__standaloneSvg` in `raster.ts`) replaces every `var()` with the live element's computed value.
 - **The legacy no-theme `toMermaid()` output is byte-stable.** Hosts depend on it. Don't add frontmatter
   to that path; theme by post-processing `classDef` lines instead.
 
