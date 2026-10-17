@@ -92,12 +92,14 @@ function cfBareClone(svg){
   return c;
 }
 // The print stylesheet and page container, added once. While html.cf-printing is set (only during a
-// print this script laid out), everything but the print pages is hidden. Nodes keep their palette, so
+// print this script laid out), everything but the print pages is hidden. The root rules are !important
+// because a host may set color-scheme inline on <html> (the viewer's theme switcher does), which would
+// otherwise keep the page canvas dark around a light printed page. Nodes keep their palette, so
 // they print exactly; lines, text and label boxes switch to dark-on-white.
 function cfPrintSetup(){
   if(document.getElementById('cf-print')){ return; }
   var st=document.createElement('style'); st.id='cf-print-css';
-  st.textContent='#cf-print { display:none; } @media print { html.cf-printing { color-scheme:light; background:#fff; } html.cf-printing body { background:#fff !important; padding:0 !important; margin:0 !important; display:block !important; height:auto !important; overflow:visible !important; } html.cf-printing body > :not(#cf-print) { display:none !important; } html.cf-printing #cf-print { display:block; --pele-bg:#fff; --pele-fg:#1e293b; --pele-line:#64748b; print-color-adjust:exact; -webkit-print-color-adjust:exact; } .cf-print-page { break-after:page; page-break-after:always; } .cf-print-page:last-child { break-after:auto; page-break-after:auto; } .cf-print-head { font:600 12px/16px system-ui, sans-serif; color:#1e293b; height:22px; margin:0 0 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .cf-print-strips { display:flex; align-items:flex-start; justify-content:center; } .cf-print-strips svg { display:block; flex:none; } }';
+  st.textContent='#cf-print { display:none; } @media print { html.cf-printing { color-scheme:light !important; background:#fff !important; } html.cf-printing body { background:#fff !important; padding:0 !important; margin:0 !important; display:block !important; height:auto !important; overflow:visible !important; } html.cf-printing body > :not(#cf-print) { display:none !important; } html.cf-printing #cf-print { display:block; --pele-bg:#fff; --pele-fg:#1e293b; --pele-line:#64748b; print-color-adjust:exact; -webkit-print-color-adjust:exact; } .cf-print-page { break-after:page; page-break-after:always; } .cf-print-page:last-child { break-after:auto; page-break-after:auto; } .cf-print-head { font:600 12px/16px system-ui, sans-serif; color:#1e293b; height:22px; margin:0 0 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .cf-print-strips { display:flex; align-items:flex-start; justify-content:center; } .cf-print-strips svg { display:block; flex:none; } }';
   document.head.appendChild(st);
   var d=document.createElement('div'); d.id='cf-print'; document.body.appendChild(d);
 }

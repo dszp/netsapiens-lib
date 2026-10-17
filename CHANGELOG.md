@@ -5,6 +5,15 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.15.1 — 2026-10-17
+
+### Fixed
+
+- **`letterPrintScript()` prints on a white page when the host sets a dark `color-scheme` inline.** A
+  page that sets `color-scheme` as an inline style on `<html>` (the standalone viewer's theme switcher
+  does) overrode the print stylesheet, leaving a dark band around the printed diagram. The print rules
+  for the root now take precedence.
+
 ## 0.15.0 — 2026-10-17
 
 ### Added
