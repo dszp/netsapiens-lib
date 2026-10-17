@@ -5,6 +5,14 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.13.1 — 2026-10-17
+
+### Fixed
+
+- **Light-theme PNG and SVG exports have a white background.** 0.13.0 exported them on the diagram
+  panel's light grey, with edge-label boxes in the same grey. They now use white for both, matching the
+  printed PDF. Dark-theme exports keep the dark panel color, since their light text needs it.
+
 ## 0.13.0 — 2026-10-17
 
 ### Changed

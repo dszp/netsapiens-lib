@@ -370,13 +370,14 @@ ${peleScriptTag(peleSrc)}
   <div id="cf-lightbox" class="cf-lightbox"><span class="cf-lightbox-hint">click / Esc to close</span><div class="cf-lightbox-inner"></div></div>
   <div id="cf-print"></div>
   <script>${rasterizerScript()}</script>
-  ${peleGalleryScript(domain, c.mermaidBg)}
+  ${peleGalleryScript(domain, light ? '#ffffff' : c.mermaidBg)}
 </body></html>`;
 }
 
 /** The themed gallery's script: draws each `.mermaid` block's source with Pele, then wires the
  *  single-flow pan/zoom view (the portal modal) or the multi-flow lightbox. `domain` names exported
- *  files; `bg` is the PNG background (the diagram panel's color). */
+ *  files; `bg` is the exported files' background: white for the light theme (matching print), the
+ *  panel color for dark, whose light text would vanish on white. */
 function peleGalleryScript(domain: string, bg: string): string {
   return `<script>
     var CF_DOMAIN = ${scriptJson(domain)}, CF_BG = ${scriptJson(bg)};
@@ -455,14 +456,21 @@ function peleGalleryScript(domain: string, bg: string): string {
         var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fileBase(el)+'.'+ext;
         document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
       }
+      // The export copy reads colors from the live SVG, so the edge-label boxes (filled with --pele-bg)
+      // would keep the panel's tint on a white file. Point --pele-bg at the export background while the
+      // copy is made. Both exporters build it synchronously, before any await, so this never paints.
+      function withExportBg(f){
+        st.svg.style.setProperty('--pele-bg', CF_BG);
+        try { return f(); } finally { st.svg.style.removeProperty('--pele-bg'); }
+      }
       async function png(btn){
         btn.disabled=true;
-        try { save(await svgToPngBlob(st.svg, { scale:2, background:CF_BG }), 'png'); }
+        try { save(await withExportBg(function(){ return svgToPngBlob(st.svg, { scale:2, background:CF_BG }); }), 'png'); }
         catch(e){ alert('PNG export failed: '+(e && e.message || e)); }
         finally { btn.disabled=false; }
       }
       function svgFile(){
-        try { save(svgToSvgBlob(st.svg, { background:CF_BG }), 'svg'); }
+        try { save(withExportBg(function(){ return svgToSvgBlob(st.svg, { background:CF_BG }); }), 'svg'); }
         catch(e){ alert('SVG export failed: '+(e && e.message || e)); }
       }
       var oldc=el.querySelector('.cf-pz-ctl'); if(oldc){ oldc.remove(); }
