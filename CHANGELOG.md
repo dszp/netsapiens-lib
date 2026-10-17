@@ -22,6 +22,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   element's computed value, and drops on-screen `transform` and sizing styles before drawing. A
   diagram colored by page CSS variables now exports with its colors.
 
+### Security
+
+- **The themed gallery sanitizes the renderer's SVG before inserting it.** Mermaid's
+  `securityLevel: 'strict'` was the second layer behind `toMermaid()`'s escaping; Pele has no such
+  mode. The gallery now parses Pele's output as SVG XML, keeps only the SVG elements and presentation
+  attributes a flowchart uses, removes every event handler, link, `foreignObject`, `style` element and
+  any `style` value that loads a URL, and inserts the parsed node. Output that doesn't parse as SVG is
+  shown as an error, not inserted.
+
 ### Added
 
 - **Single-flow galleries have PNG, SVG and PDF buttons.** PNG downloads the diagram at 2× scale. SVG

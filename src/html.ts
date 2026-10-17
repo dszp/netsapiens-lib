@@ -383,9 +383,29 @@ function peleGalleryScript(domain: string, bg: string): string {
     // responsive/autoDirection off: the pan/zoom view sizes the diagram itself, and a layout that
     // flips direction with the iframe width would make the ⇄ button's state a lie.
     var CF_RENDER = { responsive:false, autoDirection:false, fontFamily:'system-ui, sans-serif', fontSize:14 };
+    // The second escaping layer behind mermaid.ts (Mermaid's securityLevel:'strict' was the old one).
+    // Pele promises SVG with no scripts, handlers or HTML; this enforces it rather than trusting it.
+    // Parse as SVG XML (never as HTML), keep only the SVG elements and presentation attributes Pele
+    // uses for flowcharts, drop any style that could load a URL, and insert the parsed node.
+    var SVG_NS='http://www.w3.org/2000/svg';
+    var SAFE_EL={ svg:1, g:1, path:1, rect:1, circle:1, ellipse:1, line:1, polyline:1, polygon:1, text:1, tspan:1, title:1, desc:1 };
+    var SAFE_ATTR={ 'aria-roledescription':1, 'class':1, d:1, fill:1, 'fill-opacity':1, 'font-family':1, 'font-size':1, 'font-style':1, 'font-weight':1, height:1, opacity:1, points:1, r:1, rx:1, ry:1, cx:1, cy:1, role:1, stroke:1, 'stroke-dasharray':1, 'stroke-linecap':1, 'stroke-linejoin':1, 'stroke-opacity':1, 'stroke-width':1, style:1, 'text-anchor':1, 'dominant-baseline':1, transform:1, viewBox:1, width:1, x:1, y:1, x1:1, y1:1, x2:1, y2:1, dx:1, dy:1, 'xml:space':1, xmlns:1, 'data-id':1 };
+    function cleanSvg(str){
+      var doc=new DOMParser().parseFromString(str, 'image/svg+xml'), root=doc.documentElement;
+      if(!root || root.namespaceURI!==SVG_NS || root.localName!=='svg' || doc.getElementsByTagName('parsererror').length){ throw new Error('renderer returned unusable SVG'); }
+      var all=[root].concat([].slice.call(root.getElementsByTagName('*')));
+      for(var k=all.length-1;k>=0;k--){
+        var n=all[k];
+        if(n.namespaceURI!==SVG_NS || !SAFE_EL[n.localName]){ if(n!==root && n.parentNode){ n.parentNode.removeChild(n); } continue; }
+        [].slice.call(n.attributes).forEach(function(a){
+          if(!SAFE_ATTR[a.name] || (a.name==='style' && /url\\s*\\(|@import|expression\\s*\\(/i.test(a.value))){ n.removeAttribute(a.name); }
+        });
+      }
+      return document.importNode(root, true);
+    }
     function draw(el, i){
       if(!el.getAttribute('data-src')){ el.setAttribute('data-src', el.textContent); }
-      try { el.innerHTML = pele.render(el.getAttribute('data-src'), Object.assign({ idPrefix:'cf'+i+'-' }, CF_RENDER)).svg; }
+      try { el.replaceChildren(cleanSvg(pele.render(el.getAttribute('data-src'), Object.assign({ idPrefix:'cf'+i+'-' }, CF_RENDER)).svg)); }
       catch(e){ var p=document.createElement('div'); p.className='cf-err'; p.textContent='This diagram could not be drawn: '+(e && e.message || e); el.replaceChildren(p); }
     }
     // A copy of a drawn diagram without the on-screen sizing/pan styles. Only those are removed: Pele
