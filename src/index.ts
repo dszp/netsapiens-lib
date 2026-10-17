@@ -33,6 +33,7 @@ export {
   mermaidBootstrap,
   peleScriptTag,
   svgSanitizerScript,
+  letterPrintScript,
   flowAnchorId,
   type GalleryOptions,
   type CardOptions,

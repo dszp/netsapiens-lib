@@ -73,6 +73,127 @@ function cleanSvg(str){
 }`;
 }
 
+/**
+ * Injectable browser JS defining `cfLetterPrint(getSvg, getHead)` (and its helper `cfBareClone(svg)`):
+ * lays a drawn diagram out for US Letter whenever the page prints, from a button calling
+ * `window.print()` or the browser's own Print command. `getSvg()` returns the live diagram `<svg>`, or
+ * null to print the page as it is; `getHead()` returns the line printed atop each page. The diagram goes
+ * on one page when it stays legible there (at least 70% scale); otherwise it is cut between nodes into
+ * strips packed onto as few pages as possible. The script adds its own print stylesheet and container.
+ * Call `cfLetterPrint` once per page.
+ */
+export function letterPrintScript(): string {
+  return `// A copy of a drawn diagram without the on-screen sizing/pan styles. Only those are removed: Pele
+// declares its color variables in the root style attribute, so dropping the whole attribute
+// would strip the diagram's colors.
+function cfBareClone(svg){
+  var c=svg.cloneNode(true);
+  ['transform','transform-origin','position','top','left','max-width','height','width'].forEach(function(p){ c.style.removeProperty(p); });
+  return c;
+}
+// The print stylesheet and page container, added once. While html.cf-printing is set (only during a
+// print this script laid out), everything but the print pages is hidden. Nodes keep their palette, so
+// they print exactly; lines, text and label boxes switch to dark-on-white.
+function cfPrintSetup(){
+  if(document.getElementById('cf-print')){ return; }
+  var st=document.createElement('style'); st.id='cf-print-css';
+  st.textContent='#cf-print { display:none; } @media print { html.cf-printing { color-scheme:light; background:#fff; } html.cf-printing body { background:#fff !important; padding:0 !important; margin:0 !important; display:block !important; height:auto !important; overflow:visible !important; } html.cf-printing body > :not(#cf-print) { display:none !important; } html.cf-printing #cf-print { display:block; --pele-bg:#fff; --pele-fg:#1e293b; --pele-line:#64748b; print-color-adjust:exact; -webkit-print-color-adjust:exact; } .cf-print-page { break-after:page; page-break-after:always; } .cf-print-page:last-child { break-after:auto; page-break-after:auto; } .cf-print-head { font:600 12px/16px system-ui, sans-serif; color:#1e293b; height:22px; margin:0 0 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .cf-print-strips { display:flex; align-items:flex-start; justify-content:center; } .cf-print-strips svg { display:block; flex:none; } }';
+  document.head.appendChild(st);
+  var d=document.createElement('div'); d.id='cf-print'; document.body.appendChild(d);
+}
+// Print / PDF on US Letter. The whole diagram goes on one page when it stays legible there
+// (scale ≥ MIN_K; 0.7 puts the 14px labels at about 7.4pt), in whichever orientation scales it
+// larger. Otherwise it is cut by viewBox into strips along one axis: the fewest strips that keep
+// scale ≥ MIN_K, enlarged to fill them (never past 1×). Strips are packed several to a page when
+// they fit — stacked for a wide flow, side by side for a tall, narrow one — and the orientation and
+// axis chosen are whichever print on the fewest pages. Each cut moves back to the nearest gap
+// between nodes so no box is split across strips (edges may be); with no gap in the back half of
+// the strip it stays where it was. Built on beforeprint so the browser's own Print command gets the
+// same layout as the button.
+// getSvg() returns the live diagram <svg> (or null: print the page as-is); getHead() the header text.
+function cfLetterPrint(getSvg, getHead){
+  cfPrintSetup();
+  var IN=96, M=0.4*IN, HEAD=28, GAP=16, MIN_K=0.7;
+  function area(o){ var w=(o==='landscape'?11:8.5)*IN-2*M, h=(o==='landscape'?8.5:11)*IN-2*M-HEAD; return { w:w, h:h }; }
+  function plan(W, H){
+    var best=null;
+    ['portrait','landscape'].forEach(function(o){
+      var a=area(o), k=Math.min(a.w/W, a.h/H, 1);
+      if(k>=MIN_K && (!best || k>best.k)){ best={ o:o, k:k, axis:'y', n:1, per:1, pages:1 }; }
+    });
+    if(best) return best;
+    ['portrait','landscape'].forEach(function(o){
+      var a=area(o);
+      ['y','x'].forEach(function(axis){
+        var across=axis==='y' ? a.w/W : a.h/H, along=axis==='y' ? a.h/H : a.w/W;
+        var kMax=Math.min(across, 1), n=Math.max(1, Math.ceil(Math.min(kMax, MIN_K)/along - 1e-6));
+        var k=Math.min(kMax, n*along), cross=(axis==='y' ? W : H)*k, room=axis==='y' ? a.w : a.h;
+        var per=Math.max(1, Math.min(n, Math.floor((room+GAP)/(cross+GAP)))), c={ o:o, k:k, axis:axis, n:n, per:per, pages:Math.ceil(n/per) };
+        var ok=c.k>=MIN_K, bok=best && best.k>=MIN_K;
+        if(!best || (ok && !bok) || (ok===bok && (ok ? (c.pages<best.pages || (c.pages===best.pages && c.k>best.k)) : c.k>best.k))){ best=c; }
+      });
+    });
+    return best;
+  }
+  window.addEventListener('beforeprint', function(){
+    var src=getSvg(); if(!src || !src.viewBox || !src.viewBox.baseVal || !src.viewBox.baseVal.width) return;
+    var vb=src.viewBox.baseVal, W=vb.width, H=vb.height, p=plan(W, H), a=area(p.o);
+    var head=String(getHead() || '');
+    var out=document.getElementById('cf-print'); out.replaceChildren();
+    var page=null, box=null, room=p.axis==='y' ? a.h : a.w;
+    var o0=p.axis==='y' ? vb.y : vb.x, len=p.axis==='y' ? H : W, spans=[];
+    if(p.n>1){
+      // Node extents along the cut axis, in viewBox units (from on-screen boxes ÷ current scale).
+      // A cut within 4 units of a node counts as inside it: the stroke draws past the box.
+      var sr=src.getBoundingClientRect(), sc=sr.width/W;
+      src.querySelectorAll('.pele-node').forEach(function(nd){
+        var r=nd.getBoundingClientRect();
+        spans.push(p.axis==='y' ? [vb.y+(r.top-sr.top)/sc, vb.y+(r.bottom-sr.top)/sc] : [vb.x+(r.left-sr.left)/sc, vb.x+(r.right-sr.left)/sc]);
+      });
+    }
+    function cutsFor(step){
+      var cs=[o0];
+      while(cs[cs.length-1]+step < o0+len-0.5){
+        var from=cs[cs.length-1], c=from+step, moved=true;
+        while(moved){ moved=false; spans.forEach(function(sp){ if(c>sp[0]-4 && c<sp[1]+4){ c=sp[0]-6; moved=true; } }); }
+        cs.push(c>from+step/2 ? c : from+step);
+      }
+      cs.push(o0+len); return cs;
+    }
+    // Snapping shortens strips, which can add one; give back up to 30% of scale (never below
+    // MIN_K) to keep the planned strip count.
+    var cuts=cutsFor(room/p.k);
+    for(var j=1; j<=10 && cuts.length-1>p.n; j++){
+      var kj=p.k*(1-0.03*j); if(kj<MIN_K){ break; }
+      var cj=cutsFor(room/kj); if(cj.length-1<=p.n){ cuts=cj; p.k=kj; }
+    }
+    p.n=cuts.length-1; p.pages=Math.ceil(p.n/p.per);
+    for(var i=0;i<p.n;i++){
+      if(i%p.per===0){
+        var pg=i/p.per;
+        page=document.createElement('div'); page.className='cf-print-page';
+        var h=document.createElement('div'); h.className='cf-print-head'; h.textContent=head+(p.pages>1 ? ' · page '+(pg+1)+' of '+p.pages : ''); page.appendChild(h);
+        box=document.createElement('div'); box.className='cf-print-strips';
+        box.style.flexDirection=p.axis==='y' ? 'row' : 'column'; box.style.gap=GAP+'px';
+        page.appendChild(box); out.appendChild(page);
+      }
+      var s=cfBareClone(src);
+      var x=vb.x, y=vb.y, w=W, hh=H;
+      if(p.axis==='y'){ y=cuts[i]; hh=cuts[i+1]-cuts[i]; } else { x=cuts[i]; w=cuts[i+1]-cuts[i]; }
+      s.setAttribute('viewBox', x+' '+y+' '+w+' '+hh); s.setAttribute('width', w*p.k); s.setAttribute('height', hh*p.k);
+      s.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+      box.appendChild(s);
+    }
+    var ps=document.getElementById('cf-page') || document.head.appendChild(Object.assign(document.createElement('style'), { id:'cf-page' }));
+    ps.textContent='@page { size: letter '+p.o+'; margin: 0.4in; }';
+    document.documentElement.classList.add('cf-printing');
+  });
+  window.addEventListener('afterprint', function(){
+    document.documentElement.classList.remove('cf-printing'); document.getElementById('cf-print').replaceChildren();
+  });
+}`;
+}
+
 /** JSON for an inline `<script>`: `<` escaped so a value can never close the script element. */
 function scriptJson(v: unknown): string {
   return JSON.stringify(v).replace(/</g, '\\u003c');
@@ -361,22 +482,8 @@ ${peleScriptTag(peleSrc)}
   .cf-pz-ctl button:hover { border-color:${brandAccent}; color:${brandAccent}; }
   .cf-pz-ctl button.cf-txt { font:600 10px/1 system-ui,sans-serif; }
   .cf-pz-ctl button:disabled { opacity:.5; cursor:progress; }
-  .mermaid, #cf-print { --pele-bg:${c.mermaidBg}; --pele-fg:${c.text}; --pele-line:${line}; --pele-muted:${c.meta}; --pele-border:${c.cardBorder}; --pele-font:system-ui, sans-serif; }
+  .mermaid { --pele-bg:${c.mermaidBg}; --pele-fg:${c.text}; --pele-line:${line}; --pele-muted:${c.meta}; --pele-border:${c.cardBorder}; --pele-font:system-ui, sans-serif; }
   .cf-err { color:${c.notes}; font-size:13px; white-space:pre-wrap; text-align:left; }
-  #cf-print { display:none; }
-  @media print {
-    /* Only while the print pages exist (built on beforeprint for a single-flow gallery); a
-       multi-flow gallery prints as the page. Nodes keep their palette, so print it exactly. */
-    html.cf-printing { color-scheme:light; background:#fff; }
-    html.cf-printing body { background:#fff; padding:0; margin:0; }
-    html.cf-printing body > :not(#cf-print) { display:none !important; }
-    html.cf-printing #cf-print { display:block; --pele-bg:#fff; --pele-fg:#1e293b; --pele-line:#64748b; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
-    .cf-print-page { break-after:page; page-break-after:always; }
-    .cf-print-page:last-child { break-after:auto; page-break-after:auto; }
-    .cf-print-head { font:600 12px/16px system-ui, sans-serif; color:#1e293b; height:22px; margin:0 0 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-    .cf-print-strips { display:flex; align-items:flex-start; justify-content:center; }
-    .cf-print-strips svg { display:block; flex:none; }
-  }
   .cf-notes { padding:0 0 14px 34px; color:${c.notes}; font-size:12.5px; }
   .cf-notes li { margin:2px 0; }
   .cf-lightbox { position:fixed; inset:0; background:${c.lightboxBg}; display:none; z-index:9999; padding:20px; cursor:zoom-out; }
@@ -400,7 +507,6 @@ ${peleScriptTag(peleSrc)}
   </nav>`}
   ${cards}
   <div id="cf-lightbox" class="cf-lightbox"><span class="cf-lightbox-hint">click / Esc to close</span><div class="cf-lightbox-inner"></div></div>
-  <div id="cf-print"></div>
   <script>${rasterizerScript()}</script>
   ${peleGalleryScript(domain, light ? '#ffffff' : c.mermaidBg)}
 </body></html>`;
@@ -417,23 +523,23 @@ function peleGalleryScript(domain: string, bg: string): string {
     // flips direction with the iframe width would make the ⇄ button's state a lie.
     var CF_RENDER = { responsive:false, autoDirection:false, fontFamily:'system-ui, sans-serif', fontSize:14 };
     ${svgSanitizerScript()}
+    ${letterPrintScript()}
     function draw(el, i){
       if(!el.getAttribute('data-src')){ el.setAttribute('data-src', el.textContent); }
       try { el.replaceChildren(cleanSvg(pele.render(el.getAttribute('data-src'), Object.assign({ idPrefix:'cf'+i+'-' }, CF_RENDER)).svg)); }
       catch(e){ var p=document.createElement('div'); p.className='cf-err'; p.textContent='This diagram could not be drawn: '+(e && e.message || e); el.replaceChildren(p); }
     }
-    // A copy of a drawn diagram without the on-screen sizing/pan styles. Only those are removed: Pele
-    // declares its color variables in the root style attribute, so dropping the whole attribute
-    // would strip the diagram's colors.
-    function bareClone(svg){
-      var c=svg.cloneNode(true);
-      ['transform','transform-origin','position','top','left','max-width','height','width'].forEach(function(p){ c.style.removeProperty(p); });
-      return c;
-    }
+    var bareClone = cfBareClone;
     var els = document.querySelectorAll('.mermaid');
     els.forEach(draw);
     // Single-flow (the portal modal): scroll/drag pan, Shift+scroll or +/- buttons zoom, flip layout.
-    if (els.length === 1) { panZoom(els[0]); printOnBeforePrint(els[0]); } else { lightbox(); }
+    if (els.length === 1) {
+      panZoom(els[0]);
+      cfLetterPrint(function(){ return els[0]._pz && els[0]._pz.svg; }, function(){
+        var card=els[0].closest('.cf-card'), h=card && card.querySelector('h2');
+        return (h ? h.textContent+' · ' : '')+CF_DOMAIN;
+      });
+    } else { lightbox(); }
     function fileBase(el){
       var card=el.closest('[id^="flow-"]'), id=card ? card.id.replace(/^flow-/,'') : 'flow';
       return (CF_DOMAIN+'-'+id).replace(/[^A-Za-z0-9._-]+/g,'_');
@@ -511,96 +617,6 @@ function peleGalleryScript(domain: string, bg: string): string {
         window.addEventListener('resize', function(){ if(st.fit){ st.fit(); } });
       }
       requestAnimationFrame(function(){ st.fit(); }); setTimeout(function(){ st.fit(); }, 80);
-    }
-    // Print / PDF on US Letter. The whole diagram goes on one page when it stays legible there
-    // (scale ≥ MIN_K; 0.7 puts the 14px labels at about 7.4pt), in whichever orientation scales it
-    // larger. Otherwise it is cut by viewBox into strips along one axis: the fewest strips that keep
-    // scale ≥ MIN_K, enlarged to fill them (never past 1×). Strips are packed several to a page when
-    // they fit — stacked for a wide flow, side by side for a tall, narrow one — and the orientation and
-    // axis chosen are whichever print on the fewest pages. Each cut moves back to the nearest gap
-    // between nodes so no box is split across strips (edges may be); with no gap in the back half of
-    // the strip it stays where it was. Built on beforeprint so the browser's own Print command gets the
-    // same layout as the button.
-    function printOnBeforePrint(el){
-      var IN=96, M=0.4*IN, HEAD=28, GAP=16, MIN_K=0.7;
-      function area(o){ var w=(o==='landscape'?11:8.5)*IN-2*M, h=(o==='landscape'?8.5:11)*IN-2*M-HEAD; return { w:w, h:h }; }
-      function plan(W, H){
-        var best=null;
-        ['portrait','landscape'].forEach(function(o){
-          var a=area(o), k=Math.min(a.w/W, a.h/H, 1);
-          if(k>=MIN_K && (!best || k>best.k)){ best={ o:o, k:k, axis:'y', n:1, per:1, pages:1 }; }
-        });
-        if(best) return best;
-        ['portrait','landscape'].forEach(function(o){
-          var a=area(o);
-          ['y','x'].forEach(function(axis){
-            var across=axis==='y' ? a.w/W : a.h/H, along=axis==='y' ? a.h/H : a.w/W;
-            var kMax=Math.min(across, 1), n=Math.max(1, Math.ceil(Math.min(kMax, MIN_K)/along - 1e-6));
-            var k=Math.min(kMax, n*along), cross=(axis==='y' ? W : H)*k, room=axis==='y' ? a.w : a.h;
-            var per=Math.max(1, Math.min(n, Math.floor((room+GAP)/(cross+GAP)))), c={ o:o, k:k, axis:axis, n:n, per:per, pages:Math.ceil(n/per) };
-            var ok=c.k>=MIN_K, bok=best && best.k>=MIN_K;
-            if(!best || (ok && !bok) || (ok===bok && (ok ? (c.pages<best.pages || (c.pages===best.pages && c.k>best.k)) : c.k>best.k))){ best=c; }
-          });
-        });
-        return best;
-      }
-      window.addEventListener('beforeprint', function(){
-        var src=el._pz && el._pz.svg; if(!src) return;
-        var vb=src.viewBox.baseVal, W=vb.width, H=vb.height, p=plan(W, H), a=area(p.o);
-        var title=(el.closest('.cf-card') && el.closest('.cf-card').querySelector('h2'));
-        var head=(title ? title.textContent+' · ' : '')+CF_DOMAIN;
-        var out=document.getElementById('cf-print'); out.replaceChildren();
-        var page=null, box=null, room=p.axis==='y' ? a.h : a.w;
-        var o0=p.axis==='y' ? vb.y : vb.x, len=p.axis==='y' ? H : W, spans=[];
-        if(p.n>1){
-          // Node extents along the cut axis, in viewBox units (from on-screen boxes ÷ current scale).
-          // A cut within 4 units of a node counts as inside it: the stroke draws past the box.
-          var sr=src.getBoundingClientRect(), sc=sr.width/W;
-          src.querySelectorAll('.pele-node').forEach(function(nd){
-            var r=nd.getBoundingClientRect();
-            spans.push(p.axis==='y' ? [vb.y+(r.top-sr.top)/sc, vb.y+(r.bottom-sr.top)/sc] : [vb.x+(r.left-sr.left)/sc, vb.x+(r.right-sr.left)/sc]);
-          });
-        }
-        function cutsFor(step){
-          var cs=[o0];
-          while(cs[cs.length-1]+step < o0+len-0.5){
-            var from=cs[cs.length-1], c=from+step, moved=true;
-            while(moved){ moved=false; spans.forEach(function(sp){ if(c>sp[0]-4 && c<sp[1]+4){ c=sp[0]-6; moved=true; } }); }
-            cs.push(c>from+step/2 ? c : from+step);
-          }
-          cs.push(o0+len); return cs;
-        }
-        // Snapping shortens strips, which can add one; give back up to 30% of scale (never below
-        // MIN_K) to keep the planned strip count.
-        var cuts=cutsFor(room/p.k);
-        for(var j=1; j<=10 && cuts.length-1>p.n; j++){
-          var kj=p.k*(1-0.03*j); if(kj<MIN_K){ break; }
-          var cj=cutsFor(room/kj); if(cj.length-1<=p.n){ cuts=cj; p.k=kj; }
-        }
-        p.n=cuts.length-1; p.pages=Math.ceil(p.n/p.per);
-        for(var i=0;i<p.n;i++){
-          if(i%p.per===0){
-            var pg=i/p.per;
-            page=document.createElement('div'); page.className='cf-print-page';
-            var h=document.createElement('div'); h.className='cf-print-head'; h.textContent=head+(p.pages>1 ? ' · page '+(pg+1)+' of '+p.pages : ''); page.appendChild(h);
-            box=document.createElement('div'); box.className='cf-print-strips';
-            box.style.flexDirection=p.axis==='y' ? 'row' : 'column'; box.style.gap=GAP+'px';
-            page.appendChild(box); out.appendChild(page);
-          }
-          var s=bareClone(src);
-          var x=vb.x, y=vb.y, w=W, hh=H;
-          if(p.axis==='y'){ y=cuts[i]; hh=cuts[i+1]-cuts[i]; } else { x=cuts[i]; w=cuts[i+1]-cuts[i]; }
-          s.setAttribute('viewBox', x+' '+y+' '+w+' '+hh); s.setAttribute('width', w*p.k); s.setAttribute('height', hh*p.k);
-          s.setAttribute('preserveAspectRatio', 'xMinYMin meet');
-          box.appendChild(s);
-        }
-        var ps=document.getElementById('cf-page') || document.head.appendChild(Object.assign(document.createElement('style'), { id:'cf-page' }));
-        ps.textContent='@page { size: letter '+p.o+'; margin: 0.4in; }';
-        document.documentElement.classList.add('cf-printing');
-      });
-      window.addEventListener('afterprint', function(){
-        document.documentElement.classList.remove('cf-printing'); document.getElementById('cf-print').replaceChildren();
-      });
     }
     function lightbox(){
       var box = document.getElementById('cf-lightbox'); if(!box){ return; }

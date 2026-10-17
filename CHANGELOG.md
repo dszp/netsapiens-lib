@@ -5,6 +5,19 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.15.0 — 2026-10-17
+
+### Added
+
+- **`letterPrintScript()`** — injectable browser JS defining `cfLetterPrint(getSvg, getHead)`, the US
+  Letter print layout the themed gallery uses: one page when the diagram stays at 70% scale or more,
+  otherwise strips cut between nodes and packed onto as few pages as possible, in the better orientation.
+  It runs whenever the page prints, from a button calling `window.print()` or the browser's Print
+  command, and adds its own print stylesheet and page container. `getSvg()` returns the live diagram
+  (or null to print the page as it is); `getHead()` returns the line printed atop each page.
+
+The themed gallery now uses this export instead of its own copy. Its printed output is unchanged.
+
 ## 0.14.0 — 2026-10-17
 
 ### Added

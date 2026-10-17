@@ -3,7 +3,7 @@
  * the inline script. The drawing, PNG and print paths are browser-only (validated in a browser).
  * Run: `pnpm test:html`.
  */
-import { renderGalleryHtml, peleScriptTag, svgSanitizerScript } from './html.js';
+import { renderGalleryHtml, peleScriptTag, svgSanitizerScript, letterPrintScript } from './html.js';
 import type { FlowGraph } from './model.js';
 
 let pass = 0, fail = 0;
@@ -53,6 +53,9 @@ check('peleScriptTag() is the pinned CDN build with SRI', /^<script src="https:\
 check('peleScriptTag() is the same tag the themed gallery loads', themed.includes(peleScriptTag()));
 check('svgSanitizerScript() parses and defines cleanSvg', (() => { try { return new Function(svgSanitizerScript() + '\nreturn typeof cleanSvg === "function";')() === true; } catch { return false; } })());
 check('the themed gallery injects that same sanitizer', themed.includes(svgSanitizerScript()));
+
+check('letterPrintScript() parses and defines cfLetterPrint + cfBareClone', (() => { try { return new Function(letterPrintScript() + '\nreturn typeof cfLetterPrint === "function" && typeof cfBareClone === "function";')() === true; } catch { return false; } })());
+check('the themed gallery injects that same print layout', themed.includes(letterPrintScript()) && themed.includes('cfLetterPrint('));
 
 console.log(`\nhtml.selftest: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
