@@ -4,8 +4,8 @@
  *
  * This is its own class on purpose. `NsClient` is read-only by charter (a consumer holds one precisely to
  * know it cannot write), and `NsWriteClient`'s `delete()` sends no body — while
- * `DELETE /subscriptions/{id}` *requires* one (`subscription_id`, plus `domain` for scopes below Super
- * User). (A second reason applied until 0.1.7: `NsWriteClient` injected `synchronous: 'yes'` into *every*
+ * `DELETE /subscriptions/{id}` *requires* one (`subscription_id`; `domain` is optional — see `remove()`).
+ * (A second reason applied until 0.1.7: `NsWriteClient` injected `synchronous: 'yes'` into *every*
  * POST/PUT, which no `/subscriptions` operation accepts. It now injects only where the API declares
  * support, so that objection is gone — the `delete()` body is what still makes the split necessary.)
  * Node-free (fetch/URL/crypto only), so it runs unchanged in a Cloudflare Worker.
@@ -344,9 +344,13 @@ export class NsSubscriptionsClient {
   /**
    * Delete a subscription.
    *
-   * Note the body: this endpoint takes `subscription_id` (and `domain`, required for scopes below Super
-   * User) *in addition to* the path id. That is why this client exists rather than reusing a generic write
-   * client whose `delete()` sends no body.
+   * Note the body: this endpoint takes `subscription_id` *in addition to* the path id. That is why this
+   * client exists rather than reusing a generic write client whose `delete()` sends no body.
+   *
+   * `domain` is optional, and sent only when you pass it. A Reseller-scope token deletes its own
+   * subscriptions without it. When sent, it must name a domain the caller can still reach: for a
+   * subscription whose domain has been deleted, including it fails with `401 Invalid Scope`, while
+   * omitting it succeeds. (Observed on a v44 cluster.)
    */
   remove(id: string, opts: { domain?: string } = {}): Promise<unknown> {
     const body: Rec = { subscription_id: id };

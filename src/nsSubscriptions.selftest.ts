@@ -264,8 +264,13 @@ ok(parseNsDatetime('2026-07-25 03:04') !== undefined, 'parseNsDatetime tolerates
   const c = calls[0]!;
   ok(c.method === 'DELETE' && c.url.endsWith('/subscriptions/abc'), 'remove DELETEs the id path');
   ok((c.body as Rec)['subscription_id'] === 'abc', 'remove sends subscription_id IN THE BODY (the reason this client exists)');
-  ok((c.body as Rec)['domain'] === 'acme.example.com', 'remove sends domain, required below Super User scope');
+  ok((c.body as Rec)['domain'] === 'acme.example.com', 'remove sends domain when one is passed');
   ok(c.headers['Content-Type'] === 'application/json', 'the DELETE body is sent as JSON');
+}
+{
+  reset(() => ({ status: 202, json: {} }));
+  await mk().remove('abc');
+  ok(!('domain' in (calls[0]!.body as Rec)), 'remove omits domain when none is passed (sending it for a deleted domain is a 401)');
 }
 {
   reset(() => ({ status: 202, json: {} }));

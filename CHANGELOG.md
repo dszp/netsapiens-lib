@@ -5,6 +5,15 @@ All notable changes to `@dszp/netsapiens-lib` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.15.2 — 2026-10-21
+
+### Fixed
+
+- **`NsSubscriptionsClient.remove()` no longer documents `domain` as required below Super User.** A
+  Reseller-scope token deletes subscriptions without it, and sending `domain` for a subscription whose
+  domain has been deleted fails with `401 Invalid Scope`. The doc comment now says `domain` is optional
+  and when to leave it out. No code change.
+
 ## 0.15.1 — 2026-10-17
 
 ### Fixed
